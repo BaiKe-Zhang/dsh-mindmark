@@ -2,23 +2,25 @@
 
 **把你的想法直接标在回答上，让模型看见你怎么想。**
 
+[English](README.en.md) | 中文
+
 像在 Word 里一样，对助手的回答做**高亮 / 下划线 / 删除 / 批注 / 改写**。
 你的标注会在下一轮作为上下文送给模型：它看到的不再只是自己的回答，而是「你修改后希望它理解的样子」；处理完后它会回传确认。
+标注积累几条后，一键让模型把它们归纳成**长期偏好**，写进你的全局 `AGENTS.md`，新对话自动遵守。
 
-Show the model your mind. A DeepSeek Harness bundle: mark up an answer like in Word,
-and your markup reaches the model as context on the next turn, with a confirmation
-signal back from the model.
+![演示：标注一条回答，模型按标注改写并确认，再把标注沉淀为长期偏好](docs/demo.gif)
 
 ## 用起来是什么样
 
 1. 在任意一条回答里选中一段文字，Harness 自带的选区浮条会出现，里面是本插件的操作：
    **引用 · 高亮 · 下划线 · 删除 · 批注 · 改写 · 清除标记**。
 2. 高亮/下划线/删除点一下即生效；批注和改写会展开一个小输入框，写完按「确定」（或 Ctrl+Enter）。
-3. 输入框左侧有「标注注入」开关，可在**精简**和**完整**之间切换，并显示待处理数量：
+3. 发下一条消息。模型会先按你的标注调整回答，再调用 `annotations` 工具确认「已处理」。
+4. 输入框左侧有「标注注入」开关，可在**精简**和**完整**之间切换，并显示待处理数量：
    - 精简：下一轮只发送被标注的段落和少量上下文；
    - 完整：下一轮发送整条回答的修订视图（标记内嵌在原文里）。
-4. 顶栏右上角的标注图标打开面板：看全部标注、状态（待处理 / 助手已处理 / 自动收起）、单条删除、
-   标为已处理、重新提交。
+5. 顶栏右上角的标注图标打开面板：看全部标注、状态（待处理 / 助手已处理 / 自动收起）、单条删除、
+   标为已处理、重新提交；底部「沉淀为习惯」让模型把标注归纳成长期偏好，面板里能看到并移除已沉淀的偏好。
 
 ## 五种标注对助手的含义
 
@@ -33,12 +35,31 @@ signal back from the model.
 ## 助手怎么「看到」并回应标注
 
 - **步骤前注入**：每一轮开始时，Host 把当前对话里所有待处理的标注渲染成一条用户上下文消息，
-  紧跟在你的消息之后进入模型（走官方 `agent/pre-step` 钩子，像其它上下文插件一样落进会话日志）。
+  紧跟在你的消息之后进入模型（走官方 `agent/pre-step` 钩子，像其它上下文插件一样落进会话日志，可在「轨迹」里看到）。
 - **协议段落**：对话有待处理标注时，系统提示词里多一小段，解释五种标注的含义和确认方式。
 - **回传信号**：助手处理完后调用 `annotations` 工具（`action: resolve`，可带 `ids`）确认；
   已确认的标注不再注入，面板里显示「助手已处理」。没确认的会在下一轮再次出现，
   连续 `maxInjections`（默认 3）轮未确认则自动收起，避免无限重发。
-- 你也可以在面板里手动「标为已处理」或「重新提交」。
+- **沉淀为长期偏好**：面板里的「沉淀为习惯」会把一条归纳请求填进输入框；模型回顾标注后调用
+  `annotations` 工具的 `distill` 动作，把每条一句的偏好写进 `$DSH_HOME/AGENTS.md` 的一个受管区块
+  （`<!-- dsh-mindmark:start -->` … `<!-- dsh-mindmark:end -->`，区块外内容原样保留）。
+  官方的工作区指令插件会把这个文件喂给每个新会话。`lessons` 列出、`forget` 移除；面板里也能逐条移除。
+
+## 安装
+
+```sh
+dsh plugin --profile web add dsh-mindmark
+```
+
+或者在 Harness 的插件页 → **添加插件** → 填 `dsh-mindmark`；本地开发用 `link:<本目录绝对路径>`。
+Client 半边改动后需要重启 Harness。
+
+`cordis.patch.yml` 里可配：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `defaultMode` | `brief` | 新会话的注入模式（`brief` 精简 / `full` 完整），输入框开关按会话覆盖 |
+| `maxInjections` | `3` | 一条未确认的标注最多重发几轮，超过自动收起 |
 
 ## 结构
 
@@ -49,9 +70,10 @@ dsh-mindmark/
 ├── index.js            # Host：HTTP 路由、annotations 工具、pre-step 注入、协议段落
 ├── src/store.js        # 标注持久化（状态、注入计数、按会话的模式、消息全文捕获）
 ├── src/inject.js       # 注入文本：精简视图 / 完整修订视图
+├── src/lessons.js      # 长期偏好：AGENTS.md 受管区块的读写
 ├── client.js           # Client：选区浮条、模式开关、面板、CSS 高亮绘制
 ├── locale/{en,zh}.json # 插件管理页里的名称与描述
-└── test/               # node:test 单测（store + HTTP + 注入 + 监听器）
+└── test/               # node:test 单测（store + HTTP + 注入 + 监听器 + lessons）
 ```
 
 ## 实现要点
@@ -61,13 +83,9 @@ dsh-mindmark/
 - **不依赖宿主 DOM 结构**：标注记录选中原文 + 前后文 + 滚动容器 CSS 路径，恢复时按原文和前后文打分重新定位；
   另外在消息正文（官方的 `data-text-interaction-source` 元素）里记录偏移并捕获全文，供完整模式渲染修订视图。
 - **绘制用 CSS Custom Highlight API**，五种样式各有待处理/已处理两种颜色；不往消息 DOM 里插节点。
-- **HTTP 通道**：`/plugins/dsh-mindmark/annotations`，GET 与 POST（list / add / remove / clear / resolve / reopen / set-mode）。
+- **HTTP 通道**：`/plugins/dsh-mindmark/annotations`，GET 与 POST（list / add / remove / clear / resolve / reopen / set-mode / forget-lesson）。
 - 标注存在 `$DSH_HOME/annotations/state.json`，按会话分组；与会话日志无关，删会话不会自动删标注。
-
-## 安装
-
-在 Harness 里安装本地目录形式的 bundle：插件页 → **添加插件** → 本地目录；或让智能体调用
-`plugin_manager` 的 `install_bundle`。Client 半边改动后需要重启 Harness。
+- 不 import 任何 `@deepseek-ai/*` 包，只用 Node 内置模块，所以能从链接目录直接加载。
 
 ## 限制
 
@@ -75,3 +93,8 @@ dsh-mindmark/
 - 完整模式按消息全文内嵌标记，重叠的标注会退回到精简列出。
 - 标注只对当前渲染在页面里的消息绘制；长对话里被虚拟化滚出屏幕的消息，滚回来时重新定位。
 - 多智能体场景未做特别处理：标注按会话存储，子会话各自独立。
+- 消息锚定依赖 Chat 视图的 `data-chat-node-key` 属性；上游改名时退化为纯文本锚定（只影响完整模式）。
+
+## 许可
+
+MIT
