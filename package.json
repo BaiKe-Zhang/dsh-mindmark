@@ -1,7 +1,6 @@
 {
   "name": "dsh-mindmark",
   "version": "0.3.0",
-  "private": true,
   "description": "Show the model your mind: mark up an answer like in Word (highlight / underline / strike / comment / rewrite) and your markup reaches DeepSeek Harness as context on the next turn.",
   "type": "module",
   "main": "./index.js",
