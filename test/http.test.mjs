@@ -420,7 +420,7 @@ test('apply wires the route, the annotations tool, the prompt section and the pr
     assert.ok(tool, 'the annotations tool must register')
     assert.equal(TOOL_NAME, 'annotations')
     assert.equal(tool.parameters.type, 'object')
-    assert.deepEqual(tool.parameters.properties.action.enum, ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode'])
+    assert.deepEqual(tool.parameters.properties.action.enum, ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode', 'distill', 'lessons', 'forget'])
     assert.equal(tool.parameters.additionalProperties, false)
     assert.deepEqual(tool.presentCall({ action: 'delete', ids: ['a'] }), {
       card: 'generic',

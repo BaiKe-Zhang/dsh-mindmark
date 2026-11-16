@@ -30,6 +30,7 @@ import {
   STYLE_META,
   TOOL_NAME,
 } from './src/inject.js'
+import { LessonStore, resolveInstructionsPath } from './src/lessons.js'
 
 export const name = 'mindmark'
 export const inject = ['tools', 'systemPrompt', 'webServer']
@@ -133,7 +134,8 @@ function sessionIdFromUrl(req) {
 }
 
 function sessionPayload(store, sessionId, extra = {}) {
-  return { ok: true, annotations: store.list(sessionId), mode: store.getMode(sessionId), ...extra }
+  const lessons = typeof store.lessons?.list === 'function' ? store.lessons.list() : []
+  return { ok: true, annotations: store.list(sessionId), mode: store.getMode(sessionId), lessons, ...extra }
 }
 
 function stringIds(ids, code, message) {
@@ -243,9 +245,15 @@ export function createAnnotationsHandler(deps) {
         sendJson(req, res, 200, sessionPayload(store, sessionId))
         return
       }
+      if (action === 'forget-lesson') {
+        const targets = stringIds(body.lessons, 'invalid-lessons', 'lessons 必须是字符串数组。')
+        const removed = store.lessons ? store.lessons.remove(targets) : []
+        sendJson(req, res, 200, sessionPayload(store, sessionId, { removed: removed.length }))
+        return
+      }
       throw new AnnotateInputError(
         'invalid-action',
-        '未知的 action，只支持 list、add、remove、clear、resolve、reopen、set-mode。',
+        '未知的 action，只支持 list、add、remove、clear、resolve、reopen、set-mode、forget-lesson。',
       )
     } catch (error) {
       if (error instanceof AnnotateInputError) {
@@ -305,8 +313,9 @@ const TOOL_OUTPUT = {
     pending: { type: 'integer' },
     changed: { type: 'array', items: { type: 'string' } },
     annotations: { type: 'array', items: ANNOTATION_OUTPUT_ITEM },
+    lessons: { type: 'array', items: { type: 'string' } },
   },
-  required: ['action', 'mode', 'total', 'pending', 'changed', 'annotations'],
+  required: ['action', 'mode', 'total', 'pending', 'changed', 'annotations', 'lessons'],
 }
 
 function renderToolResult(_args, value) {
@@ -319,6 +328,16 @@ function renderToolResult(_args, value) {
   if (action === 'delete') lines.push(changed.length === 0 ? '没有标注被删除。' : `已删除 ${changed.length} 条标注。`)
   if (action === 'clear') lines.push(`已清空 ${changed.length} 条标注。`)
   if (action === 'set-mode') lines.push(`注入模式已改为 ${value?.mode === 'full' ? '完整' : '精简'}。`)
+  const lessons = Array.isArray(value?.lessons) ? value.lessons : []
+  if (action === 'distill') {
+    lines.push(changed.length === 0 ? '没有新的偏好被沉淀（可能已存在）。' : `已沉淀 ${changed.length} 条长期偏好到用户全局 AGENTS.md，新对话会自动遵守。`)
+  }
+  if (action === 'forget') lines.push(changed.length === 0 ? '没有偏好被移除。' : `已移除 ${changed.length} 条长期偏好。`)
+  if (action === 'distill' || action === 'forget' || action === 'lessons') {
+    lines.push(lessons.length === 0 ? '当前没有沉淀的偏好。' : `当前沉淀的偏好（${lessons.length} 条）：`)
+    lessons.forEach((lesson, index) => lines.push(`${index + 1}. ${lesson}`))
+    return [{ type: 'text', text: lines.join('\n') }]
+  }
   if (annotations.length === 0) {
     lines.push('当前对话没有标注。')
     return [{ type: 'text', text: lines.join('\n') }]
@@ -342,17 +361,25 @@ function createAnnotationsTool(store) {
     description:
       '查看或处理用户对你之前回答做的标注（高亮/下划线/删除/批注/改写）。' +
       '处理完待处理标注后用 action=resolve 确认（ids 可省略表示全部）；' +
-      '用户要看标注时 action=list；用户要撤销处理或再处理一遍用 reopen；删除用 delete/clear。',
+      '用户要看标注时 action=list；用户要撤销处理或再处理一遍用 reopen；删除用 delete/clear。' +
+      '用户要求把标注归纳成长期偏好/习惯时，先总结成每条一句的可执行偏好，再用 action=distill 写入 lessons；' +
+      'lessons 列出已沉淀的偏好；forget 按原文或序号移除。',
     parameters: {
       type: 'object',
       additionalProperties: false,
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode'],
+          enum: ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode', 'distill', 'lessons', 'forget'],
           description:
             'list=列出（默认）；resolve=确认已处理；reopen=重新打开让它们下一轮再出现；' +
-            'delete=按 ids 删除；clear=清空；set-mode=切换注入模式（配合 mode）。',
+            'delete=按 ids 删除；clear=清空；set-mode=切换注入模式（配合 mode）；' +
+            'distill=把 lessons 里的偏好沉淀到用户全局 AGENTS.md；lessons=列出已沉淀的偏好；forget=移除 lessons 指定的偏好（原文或序号）。',
+        },
+        lessons: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'distill/forget 使用：每条一句、可直接执行的用户偏好，例如“解释概念时先给具体例子再讲原理”。',
         },
         ids: {
           type: 'array',
@@ -395,6 +422,16 @@ function createAnnotationsTool(store) {
         store.clear(sessionId)
       } else if (action === 'set-mode') {
         store.setMode(sessionId, validateMode(args?.mode))
+      } else if (action === 'distill') {
+        const texts = Array.isArray(args?.lessons) ? args.lessons.filter(item => typeof item === 'string' && item.trim() !== '') : []
+        if (texts.length === 0) throw new AnnotateInputError('missing-lessons', 'distill 需要在 lessons 里给出至少一条偏好。')
+        changed = store.lessons.add(texts).added
+      } else if (action === 'forget') {
+        const targets = Array.isArray(args?.lessons) ? args.lessons.filter(item => typeof item === 'string' && item.trim() !== '') : []
+        if (targets.length === 0) throw new AnnotateInputError('missing-lessons', 'forget 需要在 lessons 里给出要移除的偏好原文或序号。')
+        changed = store.lessons.remove(targets)
+      } else if (action === 'lessons') {
+        // nothing to change
       } else {
         throw new AnnotateInputError('invalid-action', '未知的 action。')
       }
@@ -406,13 +443,18 @@ function createAnnotationsTool(store) {
         pending: annotations.filter(item => item.status !== 'resolved').length,
         changed,
         annotations,
+        lessons: store.lessons.list().map(lesson => lesson.text),
       }
     },
     presentCall: args => ({
       card: 'generic',
       title: 'Annotations',
       kind: 'other',
-      rawInput: { action: args?.action ?? 'list', ...(Array.isArray(args?.ids) ? { ids: args.ids } : {}) },
+      rawInput: {
+        action: args?.action ?? 'list',
+        ...(Array.isArray(args?.ids) ? { ids: args.ids } : {}),
+        ...(Array.isArray(args?.lessons) ? { lessons: args.lessons } : {}),
+      },
     }),
   }
 }
@@ -482,6 +524,7 @@ export function apply(ctx, config = {}) {
     ? config.maxInjections
     : DEFAULT_MAX_INJECTIONS
   const store = new AnnotationStore(statePath, { logger, defaultMode: config?.defaultMode })
+  store.lessons = new LessonStore(resolveInstructionsPath(), { logger })
   const handler = createAnnotationsHandler({ store, logger })
 
   ctx.effect(

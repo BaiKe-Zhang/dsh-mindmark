@@ -171,7 +171,8 @@ export function buildInjection(snapshot, { turn } = {}) {
   lines.push(
     `按这些标注调整你的下一条回答。处理完后调用 \`${TOOL_NAME}\` 工具，action 传 resolve，ids 传已处理的标注 id` +
       `（全部处理可省略 ids）：${ids.map(id => `#${id}`).join('、')}。` +
-      '还需要用户确认、或打算下一轮再处理的标注，不要 resolve，它们会再次出现。',
+      '还需要用户确认、或打算下一轮再处理的标注，不要 resolve，它们会再次出现。' +
+      '如果用户要求把标注归纳成长期习惯，或者同类标注反复出现，可把它总结成一句可执行的偏好，用 action: distill 沉淀。',
   )
   return lines.join('\n')
 }
@@ -185,6 +186,6 @@ export function buildProtocolSection(pendingCount) {
     '用户可以在对话里像在 Word 中一样对你的回答做标注：' + legendText() + '。',
     `待处理的标注会在每一轮开始时作为一条用户上下文消息送给你（当前 ${pendingCount} 条）。` +
       `处理完要调用 \`${TOOL_NAME}\` 工具（action: resolve，可带 ids）确认，否则它们会在下一轮再次出现；` +
-      '想看完整列表用 action: list。',
+      '想看完整列表用 action: list；用户要求“记住这个习惯/沉淀为偏好”时用 action: distill 把一句话偏好写入长期指令。',
   ].join('\n')
 }

@@ -104,6 +104,12 @@ window.__ModuleLoader__.load({
         loading: '加载中…',
         empty: '还没有标注。在回答里选中文字，工具条会浮出来。',
         footerHint: '待处理的标注会在下一轮自动送给助手；助手处理后会标为已处理。',
+        distill: '沉淀为习惯',
+        distillHint: '让助手把这些标注归纳成长期偏好，写进你的全局 AGENTS.md，新对话自动遵守',
+        distillPrompt: '请回顾我在这个对话里做过的全部标注（用 annotations 工具 action=list 查看），归纳出我反复表现出的偏好，每条一句、可直接执行、不要带具体内容，然后用 annotations 工具 action=distill 把它们写入 lessons。写完后把沉淀的偏好列给我看。',
+        lessonsTitle: '已沉淀的偏好',
+        lessonsEmpty: '还没有沉淀过偏好。标注积累几条后，点「沉淀为习惯」让助手归纳。',
+        forget: '移除',
         warning: '当前浏览器不支持 CSS Custom Highlight API：标注仍会保存，但不会显示在页面上。',
         'err.generic': '操作失败，请稍后重试。',
         'err.network': '无法连接到 Harness，标注没有保存。',
@@ -162,6 +168,12 @@ window.__ModuleLoader__.load({
         loading: 'Loading…',
         empty: 'No annotations yet. Select text in an answer and the toolbar appears.',
         footerHint: 'Pending annotations are sent to the assistant on the next turn; it marks them handled afterwards.',
+        distill: 'Keep as habit',
+        distillHint: 'Ask the assistant to distill these annotations into long-term preferences in your global AGENTS.md',
+        distillPrompt: 'Review every annotation I made in this conversation (use the annotations tool with action=list), distill the preferences I keep showing into one actionable sentence each without specific content, then write them with the annotations tool action=distill in lessons. Show me the distilled list afterwards.',
+        lessonsTitle: 'Distilled preferences',
+        lessonsEmpty: 'Nothing distilled yet. After a few annotations, click "Keep as habit" to let the assistant summarize them.',
+        forget: 'Remove',
         warning: 'This browser does not support the CSS Custom Highlight API: annotations are still saved but will not be painted.',
         'err.generic': 'Something went wrong. Try again.',
         'err.network': 'Could not reach the Harness; the annotation was not saved.',
@@ -369,7 +381,13 @@ window.__ModuleLoader__.load({
       '.dsa-item-btn:hover{opacity:1;background:var(--dsw-alias-interactive-bg-hover,#343844);color:var(--dsw-alias-label-primary,#f2f4f7)}',
       '.dsa-item-btn.is-del:hover{color:var(--dsw-alias-state-error-primary,#e5484d);',
       'background:color-mix(in srgb,var(--dsw-alias-state-error-primary,#e5484d) 12%,transparent)}',
-      '.dsa-panel-foot{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px 10px;',
+      '.dsa-lessons{flex:none;max-height:170px;overflow-y:auto;border-top:1px solid var(--dsw-alias-border-l1,#3b3f4a);padding:6px 10px 4px}',
+      '.dsa-lessons-title{margin:0 0 4px;font-size:11.5px;font-weight:600;color:var(--dsw-alias-label-secondary,#a3a8b4)}',
+      '.dsa-lesson{display:flex;align-items:flex-start;gap:6px;padding:3px 0;font-size:12px;line-height:1.5;color:var(--dsw-alias-label-primary,#f2f4f7)}',
+      '.dsa-lesson span{flex:1;min-width:0;word-break:break-word}',
+      '.dsa-lesson small{flex:none;color:var(--dsw-alias-label-tertiary,#8a8f9c);font-variant-numeric:tabular-nums}',
+      '.dsa-lessons-empty{margin:0 0 4px;font-size:11.5px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#8a8f9c)}',
+      '.dsa-panel-foot{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px 10px;flex-wrap:wrap;',
       'border-top:1px solid var(--dsw-alias-border-l1,#3b3f4a)}',
       '.dsa-hint{flex:1;min-width:0;margin:0;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary,#a3a8b4)}',
       '.dsa-btn{flex:none;height:26px;padding:0 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1,#3b3f4a);',
@@ -1078,6 +1096,7 @@ window.__ModuleLoader__.load({
       sessionId: null,
       annotations: [],
       mode: 'brief',
+      lessons: [],
       loading: false,
       error: null,
       panelOpen: false,
@@ -1225,10 +1244,62 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function normalizeLessons(raw) {
+      var list = []
+      if (!Array.isArray(raw)) return list
+      for (var index = 0; index < raw.length; index += 1) {
+        var item = raw[index]
+        if (item && typeof item.text === 'string' && item.text.length > 0) {
+          list.push({ text: clipString(item.text, 300), date: typeof item.date === 'string' ? item.date : '' })
+        }
+      }
+      return list
+    }
+
+    // The composer-side slot hands us its draft setter so the panel (root
+    // scope, no composer access) can prefill the distill request.
+    var draftSetter = null
+
+    function requestDistill(prompt) {
+      if (typeof draftSetter !== 'function') return false
+      try {
+        draftSetter(prompt)
+        return true
+      } catch (error) {
+        console.error('dsh-mindmark: cannot prefill the composer', error)
+        return false
+      }
+    }
+
+    function forgetLesson(text) {
+      var sessionId = state.sessionId
+      if (sessionId === null || typeof text !== 'string') return
+      var previous = state.lessons
+      publishState({
+        lessons: previous.filter(function (item) {
+          return item.text !== text
+        }),
+        error: null,
+      })
+      enqueueMutation(function () {
+        return postAction({ action: 'forget-lesson', sessionId: sessionId, lessons: [text] }).then(
+          function (data) {
+            if (state.sessionId !== sessionId) return
+            applyServerPayload(data)
+          },
+          function (failure) {
+            if (state.sessionId !== sessionId) return
+            publishState({ lessons: previous, error: failureToError(failure, 'resolve') })
+          },
+        )
+      })
+    }
+
     function applyServerPayload(data, extra) {
       var patch = extra || {}
       if (Array.isArray(data.annotations)) patch.annotations = normalizeAnnotationList(data.annotations)
       if (typeof data.mode === 'string') patch.mode = normalizeMode(data.mode)
+      if (Array.isArray(data.lessons)) patch.lessons = normalizeLessons(data.lessons)
       if (patch.error === undefined) patch.error = null
       publishState(patch)
     }
@@ -1479,6 +1550,8 @@ window.__ModuleLoader__.load({
         setStatus(ids, 'pending')
       },
       setMode: setMode,
+      forgetLesson: forgetLesson,
+      requestDistill: requestDistill,
       togglePanel: togglePanel,
       setPanelOpen: setPanelOpen,
     }
@@ -1716,6 +1789,21 @@ window.__ModuleLoader__.load({
         },
         [sessionId, current.sessionId],
       )
+      var inputActions = props.inputActions
+      useEffect(
+        function () {
+          if (inputActions && typeof inputActions.setDraft === 'function') {
+            draftSetter = function (text) {
+              inputActions.setDraft(text)
+            }
+            return function () {
+              draftSetter = null
+            }
+          }
+          return undefined
+        },
+        [inputActions],
+      )
       var isCurrent = sessionId !== null && current.sessionId === sessionId
       var pending = isCurrent ? pendingCount(current) : 0
       var mode = isCurrent ? current.mode : 'brief'
@@ -1817,6 +1905,7 @@ window.__ModuleLoader__.load({
       var current = props.state
       var canHighlight = props.canHighlight
       var annotations = Array.isArray(current.annotations) ? current.annotations : []
+      var lessons = Array.isArray(current.lessons) ? current.lessons : []
       var pending = pendingCount(current)
       var loading = current.loading === true
       var items = annotations
@@ -1859,8 +1948,49 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dsa-panel-body' }, body),
         h(
           'div',
+          { className: 'dsa-lessons' },
+          h('p', { className: 'dsa-lessons-title' }, t('lessonsTitle') + (lessons.length > 0 ? ' · ' + lessons.length : '')),
+          lessons.length === 0
+            ? h('p', { className: 'dsa-lessons-empty' }, t('lessonsEmpty'))
+            : lessons.map(function (lesson, index) {
+                return h(
+                  'div',
+                  { className: 'dsa-lesson', key: lesson.text + index },
+                  h('span', null, lesson.text),
+                  lesson.date ? h('small', null, lesson.date) : null,
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'dsa-item-btn is-del',
+                      title: t('forget'),
+                      'aria-label': t('forget'),
+                      onClick: function () {
+                        controller.forgetLesson(lesson.text)
+                      },
+                    },
+                    '×',
+                  ),
+                )
+              }),
+        ),
+        h(
+          'div',
           { className: 'dsa-panel-foot' },
           h('p', { className: 'dsa-hint' }, t('footerHint')),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsa-btn is-primary',
+              title: t('distillHint'),
+              disabled: annotations.length === 0,
+              onClick: function () {
+                if (controller.requestDistill(t('distillPrompt'))) controller.setPanelOpen(false)
+              },
+            },
+            t('distill'),
+          ),
           h(
             'button',
             {
