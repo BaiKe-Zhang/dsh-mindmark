@@ -1,8 +1,8 @@
-// dsh-annotate — Host half.
+// dsh-redpen — Host half.
 //
 // Registers:
 //   • the read/write HTTP API the Web client uses to store annotations and the
-//     per-session injection mode (`/plugins/dsh-annotate/annotations`);
+//     per-session injection mode (`/plugins/dsh-redpen/annotations`);
 //   • `annotations`, the model-facing tool that lists / resolves / reopens /
 //     deletes the annotations of the current conversation;
 //   • an `agent/pre-step` listener that, at the start of each turn, enters one
@@ -31,10 +31,10 @@ import {
   TOOL_NAME,
 } from './src/inject.js'
 
-export const name = 'annotate'
+export const name = 'redpen'
 export const inject = ['tools', 'systemPrompt', 'webServer']
 
-export const ROUTE = '/plugins/dsh-annotate/annotations'
+export const ROUTE = '/plugins/dsh-redpen/annotations'
 export { TOOL_NAME }
 export const SECTION_NAME = 'tool:annotations'
 export const SECTION_ORDER = 9100
@@ -256,7 +256,7 @@ export function createAnnotationsHandler(deps) {
         }
         return
       }
-      logger?.warn?.(`dsh-annotate: annotation request failed: ${String(error)}`)
+      logger?.warn?.(`dsh-redpen: annotation request failed: ${String(error)}`)
       try {
         sendError(req, res, 500, 'internal', '标注读写失败。')
       } catch {
@@ -467,7 +467,7 @@ export function createPreStepListener(store, { logger, maxInjections = DEFAULT_M
       messages.splice(anchorIndex + 1, 0, message)
       return { ...decision, messages }
     } catch (error) {
-      logger?.warn?.(`dsh-annotate: cannot inject annotations: ${String(error)}`)
+      logger?.warn?.(`dsh-redpen: cannot inject annotations: ${String(error)}`)
       return decision
     }
   }
@@ -486,12 +486,12 @@ export function apply(ctx, config = {}) {
 
   ctx.effect(
     () => ctx.webServer.register({ kind: 'exact', path: ROUTE, handler }),
-    'dsh-annotate: annotations route',
+    'dsh-redpen: annotations route',
   )
 
   ctx.effect(
     () => ctx.tools.register(createAnnotationsTool(store)),
-    'dsh-annotate: annotations tool',
+    'dsh-redpen: annotations tool',
   )
 
   ctx.effect(
@@ -505,19 +505,19 @@ export function apply(ctx, config = {}) {
             if (sessionId === '') return ''
             return buildProtocolSection(store.pending(sessionId).length)
           } catch (error) {
-            logger?.warn?.(`dsh-annotate: cannot build the annotations prompt section: ${String(error)}`)
+            logger?.warn?.(`dsh-redpen: cannot build the annotations prompt section: ${String(error)}`)
             return ''
           }
         },
       }),
-    'dsh-annotate: annotations prompt section',
+    'dsh-redpen: annotations prompt section',
   )
 
   if (typeof ctx.on === 'function') {
     ctx.on('agent/pre-step', createPreStepListener(store, { logger, maxInjections }))
   } else {
-    logger?.warn?.('dsh-annotate: ctx.on is unavailable; annotations will not be injected')
+    logger?.warn?.('dsh-redpen: ctx.on is unavailable; annotations will not be injected')
   }
 
-  logger?.info?.(`dsh-annotate: ready (${statePath}, mode=${store.defaultMode}, maxInjections=${maxInjections})`)
+  logger?.info?.(`dsh-redpen: ready (${statePath}, mode=${store.defaultMode}, maxInjections=${maxInjections})`)
 }

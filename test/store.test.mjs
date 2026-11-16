@@ -1,4 +1,4 @@
-// Unit tests for the dsh-annotate store (node:test, no network).
+// Unit tests for the dsh-redpen store (node:test, no network).
 //
 // Every test works inside a private temp directory so the real Harness home is
 // never touched; the whole tree is removed once the file finishes.
@@ -27,7 +27,7 @@ import {
   validateSessionId,
 } from '../src/store.js'
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-annotate-store-'))
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-redpen-store-'))
 after(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true })
 })

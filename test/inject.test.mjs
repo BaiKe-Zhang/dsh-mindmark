@@ -11,7 +11,7 @@ import { createPreStepListener, DEFAULT_MAX_INJECTIONS } from '../index.js'
 import { briefLine, buildInjection, buildProtocolSection, renderFullMessage, SOURCE_KIND, TOOL_NAME } from '../src/inject.js'
 import { AnnotationStore } from '../src/store.js'
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-annotate-inject-'))
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-redpen-inject-'))
 after(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true })
 })

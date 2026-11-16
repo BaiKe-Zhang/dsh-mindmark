@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Annotation feedback",
-    "description": "Highlight, underline, strike, comment on or rewrite parts of an answer like in Word; pending annotations reach the assistant as context on the next turn and it confirms when handled."
+    "title": "Red pen",
+    "description": "Highlight, underline, strike, comment on or rewrite parts of an answer like in Word; pending markup reaches the assistant as context on the next turn and it confirms when handled."
   }
 }

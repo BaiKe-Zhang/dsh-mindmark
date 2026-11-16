@@ -1,11 +1,11 @@
-// dsh-annotate — Web client half.
+// dsh-redpen — Web client half.
 //
 // Contributions:
 //   • `conversation.chat.text-interaction` (keyed, session-scoped): the Word-like
 //     action bar that the Chat view places next to a text selection. We register
 //     under the built-in `quote` key with a lower priority (so the bar replaces
 //     the plain Quote button and keeps Quote as its first action), plus our own
-//     `dsh-annotate` interaction for hosts where the Quote plugin is absent.
+//     `dsh-redpen` interaction for hosts where the Quote plugin is absent.
 //   • `conversation.input.left` (session list): the brief/full injection-mode
 //     switch beside the composer controls, with a pending-count badge.
 //   • `conversation.session.header.utilities` (session list): marker icon +
@@ -25,7 +25,7 @@
 // theme tokens and everything is namespaced under the `dsa-` class prefix.
 
 window.__ModuleLoader__.load({
-  id: 'dsh-annotate',
+  id: 'dsh-redpen',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports
@@ -37,10 +37,10 @@ window.__ModuleLoader__.load({
     var useRef = React.useRef
     var useSyncExternalStore = React.useSyncExternalStore
 
-    var ROUTE = '/plugins/dsh-annotate/annotations'
-    var UI_ATTR = 'data-dsh-annotate-ui'
+    var ROUTE = '/plugins/dsh-redpen/annotations'
+    var UI_ATTR = 'data-dsh-redpen-ui'
     var UI_SELECTOR = '[' + UI_ATTR + ']'
-    var CSS_ID = 'dsh-annotate'
+    var CSS_ID = 'dsh-redpen'
     var STYLES = ['highlight', 'underline', 'strike', 'comment', 'rewrite']
     var NOTE_STYLES = { comment: true, rewrite: true }
     var MODES = ['brief', 'full']
@@ -53,7 +53,7 @@ window.__ModuleLoader__.load({
     var MUTATION_DEBOUNCE = 150
     var STATE_REPAINT_DELAY = 60
     var PANEL_TITLE_ID = 'dsa-annotate-panel-title'
-    var SURFACE_KEY = 'dsh-annotate'
+    var SURFACE_KEY = 'dsh-redpen'
 
     // ------------------------------------------------------------- dictionaries
 
@@ -192,7 +192,7 @@ window.__ModuleLoader__.load({
       try {
         if (localeService && typeof localeService.subscribe === 'function') return localeService.subscribe(listener)
       } catch (error) {
-        console.error('dsh-annotate: locale subscribe failed', error)
+        console.error('dsh-redpen: locale subscribe failed', error)
       }
       return function () {}
     }
@@ -269,8 +269,8 @@ window.__ModuleLoader__.load({
     }
 
     var CSS_LINES = [
-      '[data-dsh-annotate-ui]{box-sizing:border-box}',
-      '[data-dsh-annotate-ui] *{box-sizing:border-box}',
+      '[data-dsh-redpen-ui]{box-sizing:border-box}',
+      '[data-dsh-redpen-ui] *{box-sizing:border-box}',
       '.dsa-header-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:4px;',
       'height:26px;min-width:26px;padding:0 6px;border:1px solid transparent;border-radius:7px;background:transparent;',
       'color:var(--dsw-alias-label-secondary,#a3a8b4);font:inherit;font-size:12px;line-height:1;cursor:pointer}',
@@ -323,7 +323,7 @@ window.__ModuleLoader__.load({
       'color:var(--dsw-alias-label-primary-foreground,#10131a);font-size:10px;line-height:15px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}',
       '@container (max-width: 520px){.dsa-mode-label span{display:none}}',
       // panel
-      '[data-dsh-annotate-ui].dsa-layer{position:fixed;inset:0;z-index:70;pointer-events:none}',
+      '[data-dsh-redpen-ui].dsa-layer{position:fixed;inset:0;z-index:70;pointer-events:none}',
       '.dsa-panel{position:fixed;z-index:70;pointer-events:auto;top:64px;right:16px;width:360px;',
       'max-width:calc(100vw - 24px);max-height:min(600px,calc(100vh - 96px));display:flex;flex-direction:column;',
       'border-radius:12px;border:1px solid var(--dsw-alias-border-l1,#3b3f4a);background:var(--dsw-alias-bg-overlay,#2a2d36);',
@@ -537,7 +537,7 @@ window.__ModuleLoader__.load({
           current = current.parentElement
         }
       } catch (error) {
-        console.error('dsh-annotate: cannot find the selection root', error)
+        console.error('dsh-redpen: cannot find the selection root', error)
       }
       return document.body
     }
@@ -565,7 +565,7 @@ window.__ModuleLoader__.load({
           node = walker.nextNode()
         }
       } catch (error) {
-        console.error('dsh-annotate: text indexing failed', error)
+        console.error('dsh-redpen: text indexing failed', error)
       }
       return { nodes: nodes, text: text, starts: starts }
     }
@@ -634,7 +634,7 @@ window.__ModuleLoader__.load({
         }
         return index.text.length
       } catch (error) {
-        console.error('dsh-annotate: offset lookup failed', error)
+        console.error('dsh-redpen: offset lookup failed', error)
         return 0
       }
     }
@@ -705,7 +705,7 @@ window.__ModuleLoader__.load({
         }
         return path.length > SELECTOR_MAX ? '' : path
       } catch (error) {
-        console.error('dsh-annotate: cannot build a CSS path', error)
+        console.error('dsh-redpen: cannot build a CSS path', error)
         return ''
       }
     }
@@ -886,7 +886,7 @@ window.__ModuleLoader__.load({
         }
         registry.set(name, group)
       } catch (error) {
-        console.error('dsh-annotate: cannot paint highlights', error)
+        console.error('dsh-redpen: cannot paint highlights', error)
       }
     }
 
@@ -898,7 +898,7 @@ window.__ModuleLoader__.load({
           CSS.highlights.delete(highlightName(style, 'resolved'))
         })
       } catch (error) {
-        console.error('dsh-annotate: cannot clear highlights', error)
+        console.error('dsh-redpen: cannot clear highlights', error)
       }
     }
 
@@ -924,7 +924,7 @@ window.__ModuleLoader__.load({
           setHighlightGroup(name, groups[name])
         })
       } catch (error) {
-        console.error('dsh-annotate: repaint failed', error)
+        console.error('dsh-redpen: repaint failed', error)
       }
     }
 
@@ -944,7 +944,7 @@ window.__ModuleLoader__.load({
           paintHighlightsNow()
         }, wait)
       } catch (error) {
-        console.error('dsh-annotate: cannot schedule a repaint', error)
+        console.error('dsh-redpen: cannot schedule a repaint', error)
       }
     }
 
@@ -1042,7 +1042,7 @@ window.__ModuleLoader__.load({
         }
         return { record: record, message: message === null ? null : { key: message.key, text: message.text, turn: message.turn } }
       } catch (error) {
-        console.error('dsh-annotate: cannot build the annotation record', error)
+        console.error('dsh-redpen: cannot build the annotation record', error)
         return null
       }
     }
@@ -1106,14 +1106,14 @@ window.__ModuleLoader__.load({
         try {
           listener()
         } catch (error) {
-          console.error('dsh-annotate: state listener failed', error)
+          console.error('dsh-redpen: state listener failed', error)
         }
       })
     }
 
     function enqueueMutation(run) {
       mutationQueue = mutationQueue.then(run, run).catch(function (error) {
-        console.error('dsh-annotate: mutation failed', error)
+        console.error('dsh-redpen: mutation failed', error)
       })
       return mutationQueue
     }
@@ -1618,7 +1618,7 @@ window.__ModuleLoader__.load({
         var isRewrite = draft.style === 'rewrite'
         return h(
           'div',
-          { className: 'dsa-toolbar is-note', role: 'dialog', 'aria-label': t(draft.style), 'data-dsh-annotate-ui': '1' },
+          { className: 'dsa-toolbar is-note', role: 'dialog', 'aria-label': t(draft.style), 'data-dsh-redpen-ui': '1' },
           h(
             'div',
             { className: 'dsa-note-head' },
@@ -1674,7 +1674,7 @@ window.__ModuleLoader__.load({
       var hasQuote = props.inputActions && typeof props.inputActions.insertQuote === 'function'
       return h(
         'div',
-        { className: 'dsa-toolbar', role: 'toolbar', 'aria-label': t('toolbarLabel'), 'data-dsh-annotate-ui': '1' },
+        { className: 'dsa-toolbar', role: 'toolbar', 'aria-label': t('toolbarLabel'), 'data-dsh-redpen-ui': '1' },
         hasQuote ? h(ToolButton, { label: t('quote'), title: t('hint.quote'), glyph: 'quote', onClick: quote }) : null,
         hasQuote ? h('span', { className: 'dsa-tool-divider', 'aria-hidden': 'true' }) : null,
         STYLES.map(function (style) {
@@ -1722,7 +1722,7 @@ window.__ModuleLoader__.load({
       var locked = props.locked === true
       return h(
         'div',
-        { className: 'dsa-mode', 'data-dsh-annotate-ui': '1', title: t('modeTitle'), role: 'group', 'aria-label': t('modeLabel') },
+        { className: 'dsa-mode', 'data-dsh-redpen-ui': '1', title: t('modeTitle'), role: 'group', 'aria-label': t('modeLabel') },
         h('span', { className: 'dsa-mode-label' }, h(MarkerIcon, { size: 13 }), h('span', null, t('modeLabel'))),
         h(
           'span',
@@ -1897,7 +1897,7 @@ window.__ModuleLoader__.load({
       if (!current.panelOpen) return null
       return h(
         'div',
-        { className: 'dsa-layer', 'data-dsh-annotate-ui': '1' },
+        { className: 'dsa-layer', 'data-dsh-redpen-ui': '1' },
         h(AnnotationPanel, { t: t, state: current, canHighlight: supportsHighlights() }),
       )
     }
@@ -1923,7 +1923,7 @@ window.__ModuleLoader__.load({
         'button',
         {
           type: 'button',
-          'data-dsh-annotate-ui': '1',
+          'data-dsh-redpen-ui': '1',
           className: 'dsa-header-btn' + (panelOpen ? ' is-active' : ''),
           title: title,
           'aria-label': title,
@@ -1944,13 +1944,13 @@ window.__ModuleLoader__.load({
       try {
         target.addEventListener(type, handler, useCapture)
       } catch (error) {
-        console.error('dsh-annotate: cannot listen for ' + type, error)
+        console.error('dsh-redpen: cannot listen for ' + type, error)
       }
       return function () {
         try {
           target.removeEventListener(type, handler, useCapture)
         } catch (error) {
-          console.error('dsh-annotate: cannot stop listening for ' + type, error)
+          console.error('dsh-redpen: cannot stop listening for ' + type, error)
         }
       }
     }
@@ -1964,11 +1964,11 @@ window.__ModuleLoader__.load({
           try {
             observer.disconnect()
           } catch (error) {
-            console.error('dsh-annotate: cannot disconnect the mutation observer', error)
+            console.error('dsh-redpen: cannot disconnect the mutation observer', error)
           }
         }
       } catch (error) {
-        console.error('dsh-annotate: cannot observe the DOM', error)
+        console.error('dsh-redpen: cannot observe the DOM', error)
         return function () {}
       }
     }
@@ -2001,7 +2001,7 @@ window.__ModuleLoader__.load({
             }
           }
         } catch (error) {
-          console.error('dsh-annotate: mutation handling failed', error)
+          console.error('dsh-redpen: mutation handling failed', error)
         }
       }
 
@@ -2030,7 +2030,7 @@ window.__ModuleLoader__.load({
           try {
             disposers[index]()
           } catch (error) {
-            console.error('dsh-annotate: disposer failed', error)
+            console.error('dsh-redpen: disposer failed', error)
           }
         }
         disposers.length = 0
@@ -2057,7 +2057,7 @@ window.__ModuleLoader__.load({
           return slots.register(options, component)
         })
       } catch (error) {
-        console.error('dsh-annotate: cannot register into ' + name, error)
+        console.error('dsh-redpen: cannot register into ' + name, error)
       }
     }
 
@@ -2087,19 +2087,19 @@ window.__ModuleLoader__.load({
 
       try {
         if (ctx && typeof ctx.effect === 'function') {
-          ctx.effect(installStyles, 'dsh-annotate: styles')
-          ctx.effect(installRuntime, 'dsh-annotate: re-anchoring runtime')
+          ctx.effect(installStyles, 'dsh-redpen: styles')
+          ctx.effect(installRuntime, 'dsh-redpen: re-anchoring runtime')
         } else {
           installStyles()
           installRuntime()
         }
       } catch (error) {
-        console.error('dsh-annotate: cannot install the client runtime', error)
+        console.error('dsh-redpen: cannot install the client runtime', error)
       }
 
       var slots = getService(ctx, 'slots')
       if (!slots || typeof slots.inject !== 'function' || typeof slots.register !== 'function') {
-        console.error('dsh-annotate: the slots service is unavailable; the client half cannot render')
+        console.error('dsh-redpen: the slots service is unavailable; the client half cannot render')
         return
       }
 
@@ -2132,29 +2132,29 @@ window.__ModuleLoader__.load({
                 },
               })
             },
-            'dsh-annotate: selection interaction',
+            'dsh-redpen: selection interaction',
           )
         } catch (error) {
-          console.error('dsh-annotate: cannot register the selection interaction', error)
+          console.error('dsh-redpen: cannot register the selection interaction', error)
         }
       }
 
       injectSlot(
         slots,
         'conversation.input.left',
-        { name: 'conversation.input.left', id: 'dsh-annotate.mode', order: 60 },
+        { name: 'conversation.input.left', id: 'dsh-redpen.mode', order: 60 },
         WithTranslate(ModeSwitch),
       )
       injectSlot(
         slots,
         'conversation.session.header.utilities',
-        { name: 'conversation.session.header.utilities', id: 'dsh-annotate', order: 40 },
+        { name: 'conversation.session.header.utilities', id: 'dsh-redpen', order: 40 },
         WithTranslate(AnnotationHeader),
       )
       injectSlot(
         slots,
         'shell.overlay',
-        { name: 'shell.overlay', id: 'dsh-annotate.overlay', order: 40 },
+        { name: 'shell.overlay', id: 'dsh-redpen.overlay', order: 40 },
         WithTranslate(AnnotationOverlay),
       )
     }

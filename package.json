@@ -1,8 +1,8 @@
 {
-  "name": "dsh-annotate",
+  "name": "dsh-redpen",
   "version": "0.2.0",
   "private": true,
-  "description": "Word-like annotations (highlight, underline, strike, comment, rewrite) on assistant answers, fed back to the model as context on the next turn.",
+  "description": "Red-pen feedback for DeepSeek Harness: highlight, underline, strike, comment on or rewrite parts of an answer like in Word; your markup reaches the model as context on the next turn.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -42,11 +42,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BaiKe-Zhang/dsh-annotate.git"
+    "url": "git+https://github.com/BaiKe-Zhang/dsh-redpen.git"
   },
-  "homepage": "https://github.com/BaiKe-Zhang/dsh-annotate#readme",
+  "homepage": "https://github.com/BaiKe-Zhang/dsh-redpen#readme",
   "bugs": {
-    "url": "https://github.com/BaiKe-Zhang/dsh-annotate/issues"
+    "url": "https://github.com/BaiKe-Zhang/dsh-redpen/issues"
   },
   "author": "BaiKe-Zhang",
   "scripts": {
