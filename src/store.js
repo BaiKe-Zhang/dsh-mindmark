@@ -34,9 +34,18 @@ export const MAX_ROOT_SELECTOR_LENGTH = 300
 export const MAX_SESSION_ID_LENGTH = 200
 export const MAX_MESSAGE_KEY_LENGTH = 200
 export const MAX_MESSAGE_TEXT_LENGTH = 20000
-export const ANNOTATION_STYLES = ['highlight', 'underline', 'strike', 'comment', 'rewrite']
+export const ANNOTATION_STYLES = ['highlight', 'underline', 'strike', 'comment', 'rewrite', 'move', 'reference']
 /** Styles whose meaning needs the user's own words. */
 export const NOTE_STYLES = ['comment', 'rewrite']
+/** Material attached to a `reference` annotation. */
+export const MATERIAL_KINDS = ['text', 'url', 'file']
+export const MAX_MATERIAL_CHARS = 200000
+export const MAX_MATERIAL_TITLE = 120
+export const MAX_MATERIAL_URL = 2000
+export const MATERIAL_EXCERPT_CHARS = 600
+/** Materials up to this size are sent whole; longer ones are read through the tool. */
+export const MATERIAL_INLINE_CHARS = 2000
+export const MATERIAL_CHUNK_CHARS = 8000
 export const ANNOTATION_STATUSES = ['pending', 'resolved']
 export const INJECTION_MODES = ['brief', 'full']
 export const DEFAULT_MODE = 'brief'
@@ -110,6 +119,123 @@ function optionalInteger(value) {
   const number = typeof value === 'number' ? value : Number(value)
   if (!Number.isInteger(number) || number < 0) return undefined
   return number
+}
+
+function hostOf(url) {
+  try {
+    return new URL(url).host
+  } catch {
+    return url.slice(0, MAX_MATERIAL_TITLE)
+  }
+}
+
+/**
+ * Validate the material of a `reference` annotation (wire format). Returns
+ * `{ meta, content }`: `meta` is what the annotation record keeps, `content`
+ * goes to its own file under `annotations/materials/`.
+ */
+export function validateMaterialInput(raw) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new AnnotateInputError('missing-material', '依据需要附上参考材料（粘贴文本、链接或文件）。')
+  }
+  if (!MATERIAL_KINDS.includes(raw.kind)) {
+    throw new AnnotateInputError('invalid-material-kind', '材料类型必须是 text、url 或 file。')
+  }
+  const content = typeof raw.content === 'string' ? raw.content.trim() : ''
+  if (content === '') {
+    throw new AnnotateInputError('missing-material', '参考材料不能为空。')
+  }
+  let title = typeof raw.title === 'string' ? raw.title.trim().replace(/\s+/g, ' ').slice(0, MAX_MATERIAL_TITLE) : ''
+  if (raw.kind === 'url') {
+    if (content.length > MAX_MATERIAL_URL || !/^https?:\/\/\S+$/i.test(content)) {
+      throw new AnnotateInputError('invalid-material-url', '链接必须是以 http:// 或 https:// 开头的网址。')
+    }
+    if (title === '') title = hostOf(content)
+    return { meta: { kind: 'url', title, url: content, length: 0, excerpt: '' }, content }
+  }
+  if (content.length > MAX_MATERIAL_CHARS) {
+    throw new AnnotateInputError(
+      'material-too-long',
+      `材料太长：最多 ${MAX_MATERIAL_CHARS} 字，请只保留和这一段相关的部分。`,
+    )
+  }
+  if (title === '') title = raw.kind === 'file' ? '文件' : '粘贴的材料'
+  return {
+    meta: { kind: raw.kind, title, length: content.length, excerpt: content.slice(0, MATERIAL_EXCERPT_CHARS) },
+    content,
+  }
+}
+
+function normalizeStoredMaterial(raw) {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null
+  if (!MATERIAL_KINDS.includes(raw.kind)) return null
+  const title = truncate(typeof raw.title === 'string' ? raw.title : '', MAX_MATERIAL_TITLE)
+  if (raw.kind === 'url') {
+    const url = truncate(raw.url, MAX_MATERIAL_URL)
+    if (!/^https?:\/\//i.test(url)) return null
+    return { kind: 'url', title, url, length: 0, excerpt: '' }
+  }
+  return {
+    kind: raw.kind,
+    title,
+    length: optionalInteger(raw.length) ?? 0,
+    excerpt: truncate(raw.excerpt, MATERIAL_EXCERPT_CHARS),
+  }
+}
+
+/**
+ * Where a `move` annotation goes, inside the same message. Either an insertion
+ * point (the caret: the passage goes right after `targetPrefix`), or, when the
+ * user selected text as the target, that text (`targetQuote`), which the moved
+ * passage replaces. `targetPrefix` / `targetSuffix` are the text right before
+ * and after the point or the replaced text; `targetOffset` (and `targetEnd`
+ * for a replacement) are offsets in the captured message when the source
+ * passage is anchored there.
+ */
+function moveTargetOf(raw, anchor) {
+  const targetPrefix = contextString(raw.targetPrefix, MAX_CONTEXT_LENGTH)
+  const targetSuffix = contextString(raw.targetSuffix, MAX_CONTEXT_LENGTH)
+  let targetQuote = ''
+  if (raw.targetQuote !== undefined && raw.targetQuote !== null && raw.targetQuote !== '') {
+    if (typeof raw.targetQuote !== 'string' || raw.targetQuote.length > MAX_QUOTE_LENGTH) {
+      throw new AnnotateInputError('invalid-move-target', `被替换的文字必须是 1–${MAX_QUOTE_LENGTH} 个字符。`)
+    }
+    targetQuote = raw.targetQuote.trim() === '' ? '' : raw.targetQuote
+  }
+  if (targetPrefix === '' && targetSuffix === '' && targetQuote === '') {
+    throw new AnnotateInputError('missing-move-target', '移动需要指定目标位置。')
+  }
+  const target = { targetPrefix, targetSuffix }
+  if (targetQuote !== '') target.targetQuote = targetQuote
+  const offset = optionalInteger(raw.targetOffset)
+  if (anchor !== undefined && offset !== undefined) {
+    if (targetQuote === '') {
+      if (offset >= anchor.start && offset <= anchor.end) {
+        throw new AnnotateInputError('invalid-move-target', '目标位置不能在被移动的文字里面，也不能是原处。')
+      }
+    } else {
+      const end = optionalInteger(raw.targetEnd) ?? offset + targetQuote.length
+      if (offset < anchor.end && end > anchor.start) {
+        throw new AnnotateInputError('invalid-move-target', '被替换的文字不能和被移动的文字重叠。')
+      }
+      target.targetEnd = end
+    }
+    target.targetOffset = offset
+  }
+  return target
+}
+
+/** Drop the style-specific fields a record of another style must not carry. */
+function stripForeignFields(record) {
+  if (record.style !== 'move') {
+    delete record.targetPrefix
+    delete record.targetSuffix
+    delete record.targetOffset
+    delete record.targetEnd
+    delete record.targetQuote
+  }
+  if (record.style !== 'reference') delete record.material
+  return record
 }
 
 /**
@@ -195,6 +321,14 @@ export function validateAnnotationInput(raw) {
     status: 'pending',
     injections: 0,
   }
+  stripForeignFields(record)
+  delete record.targetOffset
+  delete record.targetEnd
+  delete record.targetQuote
+  if (record.style === 'move') {
+    Object.assign(record, moveTargetOf(raw, anchored ? { start: messageStart, end: messageEnd } : undefined))
+  }
+  if (record.style === 'reference') record.material = validateMaterialInput(raw.material).meta
   return withAnchor(record, anchored ? messageStart : undefined, anchored ? messageEnd : undefined, optionalInteger(raw.turn))
 }
 
@@ -267,6 +401,26 @@ function normalizeStoredAnnotation(raw) {
   }
   if (record.lastInjectedTurn !== undefined && optionalInteger(record.lastInjectedTurn) === undefined) {
     delete record.lastInjectedTurn
+  }
+  stripForeignFields(record)
+  if (record.style === 'move') {
+    record.targetPrefix = truncate(raw.targetPrefix, MAX_CONTEXT_LENGTH)
+    record.targetSuffix = truncate(raw.targetSuffix, MAX_CONTEXT_LENGTH)
+    const targetQuote = typeof raw.targetQuote === 'string' && raw.targetQuote.trim() !== '' ? truncate(raw.targetQuote, MAX_QUOTE_LENGTH) : ''
+    if (targetQuote === '') delete record.targetQuote
+    else record.targetQuote = targetQuote
+    if (record.targetPrefix === '' && record.targetSuffix === '' && targetQuote === '') return null
+    const offset = optionalInteger(raw.targetOffset)
+    if (offset === undefined || !anchored) delete record.targetOffset
+    else record.targetOffset = offset
+    const end = optionalInteger(raw.targetEnd)
+    if (targetQuote === '' || record.targetOffset === undefined || end === undefined || end <= offset) delete record.targetEnd
+    else record.targetEnd = end
+  }
+  if (record.style === 'reference') {
+    const material = normalizeStoredMaterial(raw.material)
+    if (material === null) return null
+    record.material = material
   }
   return record
 }
@@ -472,10 +626,93 @@ export class AnnotationStore {
     this.filePath = filePath ?? resolveStatePath()
     this.logger = logger
     this.defaultMode = INJECTION_MODES.includes(defaultMode) ? defaultMode : DEFAULT_MODE
+    this.materialsDir = path.join(path.dirname(this.filePath), 'materials')
     this.state = loadStateFile(this.filePath, { logger })
     this.lastSaveError = null
     // Canonicalize what was loaded (and create the file early, best effort).
     this.persist()
+    this.sweepMaterials()
+  }
+
+  // ------------------------------------------------------------ materials
+
+  materialPath(id) {
+    return path.join(this.materialsDir, `${String(id).replace(/[^A-Za-z0-9_-]/g, '_')}.txt`)
+  }
+
+  writeMaterial(id, content) {
+    fs.mkdirSync(this.materialsDir, { recursive: true })
+    fs.writeFileSync(this.materialPath(id), content, { encoding: 'utf8', mode: 0o600 })
+  }
+
+  readMaterialFile(id) {
+    try {
+      return fs.readFileSync(this.materialPath(id), 'utf8')
+    } catch {
+      return undefined
+    }
+  }
+
+  deleteMaterials(records) {
+    for (const record of records) {
+      if (record?.style !== 'reference') continue
+      try {
+        fs.rmSync(this.materialPath(record.id), { force: true })
+      } catch (error) {
+        this.logger?.warn?.(`dsh-mindmark: cannot delete material ${record.id}: ${String(error)}`)
+      }
+    }
+  }
+
+  /** Remove material files no annotation refers to any more (best effort). */
+  sweepMaterials() {
+    let names
+    try {
+      names = fs.readdirSync(this.materialsDir)
+    } catch {
+      return
+    }
+    const keep = new Set()
+    for (const session of Object.values(this.state.sessions)) {
+      for (const item of session?.annotations ?? []) {
+        if (item.style === 'reference') keep.add(path.basename(this.materialPath(item.id)))
+      }
+    }
+    for (const name of names) {
+      if (!name.endsWith('.txt') || keep.has(name)) continue
+      try {
+        fs.rmSync(path.join(this.materialsDir, name), { force: true })
+      } catch {
+        // Harmless leftover.
+      }
+    }
+  }
+
+  /**
+   * Read one chunk of the material of a `reference` annotation. Returns
+   * undefined when the annotation or its material is gone.
+   */
+  material(sessionId, id, { offset = 0, limit = MATERIAL_CHUNK_CHARS } = {}) {
+    const record = this.sessionFor(sessionId)?.annotations.find(item => item.id === id)
+    if (record === undefined || record.style !== 'reference') return undefined
+    const meta = record.material
+    if (meta.kind === 'url') {
+      return { id, kind: 'url', title: meta.title, url: meta.url, total: 0, offset: 0, content: '', nextOffset: -1 }
+    }
+    const content = this.readMaterialFile(id)
+    if (content === undefined) return undefined
+    const start = Math.max(0, Math.min(Number.isInteger(offset) ? offset : 0, content.length))
+    const size = Number.isInteger(limit) && limit > 0 ? Math.min(limit, MATERIAL_CHUNK_CHARS) : MATERIAL_CHUNK_CHARS
+    const end = Math.min(content.length, start + size)
+    return {
+      id,
+      kind: meta.kind,
+      title: meta.title,
+      total: content.length,
+      offset: start,
+      content: content.slice(start, end),
+      nextOffset: end < content.length ? end : -1,
+    }
   }
 
   /** Session id -> safe session object, or undefined. */
@@ -546,13 +783,23 @@ export class AnnotationStore {
   /** Everything the injection builder needs for one session. */
   snapshot(sessionId) {
     const session = this.sessionFor(sessionId)
+    const annotations = this.list(sessionId)
+    // Short materials travel whole; longer ones are read through the tool.
+    const materials = {}
+    for (const item of annotations) {
+      if (item.style !== 'reference' || item.material.kind === 'url') continue
+      if (item.material.length > MATERIAL_INLINE_CHARS) continue
+      const content = this.readMaterialFile(item.id)
+      if (content !== undefined) materials[item.id] = content
+    }
     return {
       mode: this.getMode(sessionId),
-      annotations: this.list(sessionId),
+      annotations,
       messages:
         session === undefined
           ? {}
           : Object.fromEntries(Object.entries(session.messages).map(([key, value]) => [key, { ...value }])),
+      materials,
     }
   }
 
@@ -576,18 +823,26 @@ export class AnnotationStore {
     } else if (record.messageKey !== '' && session.messages[record.messageKey] === undefined) {
       // Anchored to a message we never captured: keep the offsets harmless.
       record.messageKey = ''
-      record.messageStart = undefined
-      record.messageEnd = undefined
+      delete record.messageStart
+      delete record.messageEnd
+      delete record.targetOffset
+      delete record.targetEnd
     }
+    const material = record.style === 'reference' ? validateMaterialInput(annotation.material) : null
     const index = session.annotations.findIndex(
       item =>
         item.style === record.style &&
         item.quote === record.quote &&
         item.prefix === record.prefix &&
         item.suffix === record.suffix &&
-        item.note === record.note,
+        item.note === record.note &&
+        (item.style !== 'move' ||
+          (item.targetPrefix === record.targetPrefix &&
+            item.targetSuffix === record.targetSuffix &&
+            (item.targetQuote ?? '') === (record.targetQuote ?? ''))),
     )
     let result
+    let stored
     if (index >= 0) {
       const existing = session.annotations[index]
       const anchorSource = record.messageKey !== '' ? record : existing
@@ -601,15 +856,36 @@ export class AnnotationStore {
       delete refreshed.resolvedAt
       delete refreshed.resolvedBy
       delete refreshed.lastInjectedTurn
+      // A re-marked reference takes the newly attached material.
+      if (material !== null) refreshed.material = material.meta
+      if (record.style === 'move') {
+        if (record.targetOffset !== undefined) refreshed.targetOffset = record.targetOffset
+        else if (refreshed.messageStart === undefined) delete refreshed.targetOffset
+        if (record.targetEnd !== undefined) refreshed.targetEnd = record.targetEnd
+        else if (refreshed.targetOffset === undefined) delete refreshed.targetEnd
+      }
       session.annotations.splice(index, 1)
       session.annotations.push(refreshed)
+      stored = refreshed
       result = { annotation: { ...refreshed }, deduped: true }
     } else {
       session.annotations.push({ ...record })
       if (session.annotations.length > MAX_ANNOTATIONS_PER_SESSION) {
-        session.annotations.splice(0, session.annotations.length - MAX_ANNOTATIONS_PER_SESSION)
+        const dropped = session.annotations.splice(0, session.annotations.length - MAX_ANNOTATIONS_PER_SESSION)
+        this.deleteMaterials(dropped)
       }
+      stored = record
       result = { annotation: { ...record }, deduped: false }
+    }
+    if (material !== null) {
+      try {
+        this.writeMaterial(stored.id, material.content)
+      } catch (error) {
+        // Without its material a new reference is meaningless: undo it.
+        if (!result.deduped) session.annotations = session.annotations.filter(item => item.id !== stored.id)
+        this.logger?.warn?.(`dsh-mindmark: cannot save material: ${String(error)}`)
+        throw new AnnotateInputError('material-save-failed', '参考材料保存失败。')
+      }
     }
     this.pruneMessages(session)
     this.persist()
@@ -630,12 +906,13 @@ export class AnnotationStore {
     if (session === undefined) return 0
     const wanted = cleanIds(ids)
     if (wanted.size === 0) return 0
-    const before = session.annotations.length
+    const dropped = session.annotations.filter(item => wanted.has(item.id))
     session.annotations = session.annotations.filter(item => !wanted.has(item.id))
-    const removed = before - session.annotations.length
+    const removed = dropped.length
     if (removed > 0) {
       this.pruneMessages(session)
       this.persist()
+      this.deleteMaterials(dropped)
     }
     return removed
   }
@@ -644,10 +921,14 @@ export class AnnotationStore {
   clear(sessionId) {
     const session = this.sessionFor(sessionId)
     if (session === undefined) return 0
-    const removed = session.annotations.length
+    const dropped = session.annotations
+    const removed = dropped.length
     session.annotations = []
     session.messages = {}
-    if (removed > 0) this.persist()
+    if (removed > 0) {
+      this.persist()
+      this.deleteMaterials(dropped)
+    }
     return removed
   }
 

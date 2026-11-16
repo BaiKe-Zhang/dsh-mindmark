@@ -10,7 +10,18 @@
 //     switch beside the composer controls, with a pending-count badge.
 //   • `conversation.session.header.utilities` (session list): marker icon +
 //     count; toggles the annotation panel.
-//   • `shell.overlay` (root list): the annotation panel.
+//   • `shell.overlay` (root list): the annotation panel, the move banner and
+//     the reference form. The reference form lives here rather than in the
+//     selection bar because the Chat view dismisses its bar whenever the window
+//     loses focus, and a native file dialog takes the focus away.
+//
+// Moving a passage works like cut and paste: Alt+C (or the toolbar's Move)
+// picks up the selection, a click inside the same answer puts a blinking caret
+// where it goes (the passage is inserted right after the caret; dragging over
+// some text instead makes the passage replace that text), Alt+V (or the
+// banner's button) drops it there, Esc cancels. Alt is the only
+// modifier that neither clashes with typing (Shift) nor stays invisible to the
+// page (Fn); Harness itself binds no Alt+C / Alt+V.
 //
 // Annotations are text anchors, never host-DOM references: the selection is
 // converted into character offsets over the nearest scroll container, stored as
@@ -41,8 +52,17 @@ window.__ModuleLoader__.load({
     var UI_ATTR = 'data-dsh-mindmark-ui'
     var UI_SELECTOR = '[' + UI_ATTR + ']'
     var CSS_ID = 'dsh-mindmark'
-    var STYLES = ['highlight', 'underline', 'strike', 'comment', 'rewrite']
+    var STYLES = ['highlight', 'underline', 'strike', 'comment', 'rewrite', 'move', 'reference']
+    // First toolbar row: one click and done. Second row: needs your input.
+    var QUICK_STYLES = ['highlight', 'underline', 'strike']
+    var INPUT_STYLES = ['comment', 'rewrite', 'reference', 'move']
     var NOTE_STYLES = { comment: true, rewrite: true }
+    var MATERIAL_KINDS = ['text', 'url', 'file']
+    var MAX_MATERIAL = 200000
+    var MAX_MATERIAL_FILE_BYTES = 4 * 1024 * 1024
+    var MATERIAL_FILE_ACCEPT = '.txt,.md,.markdown,.csv,.tsv,.json,.html,.htm,.xml,.yaml,.yml,.log,.tex,.rst,.srt,text/*'
+    var MOVE_EXTRA_HIGHLIGHTS = ['dsa-move-pending', 'dsa-move-replace', 'dsa-ref-pending']
+    var CARET_LAYER_ID = 'dsa-caret-layer'
     var MODES = ['brief', 'full']
     var MAX_QUOTE = 2000
     var MAX_NOTE = 2000
@@ -77,6 +97,41 @@ window.__ModuleLoader__.load({
         'hint.comment': '写一条意见，让助手按它处理',
         'hint.rewrite': '把这段改成你要的样子',
         'hint.quote': '把选中的文字引用到输入框',
+        move: '移动',
+        reference: '依据',
+        'hint.move': '把这段挪到别处：Alt+C 拿起，在同一条回答里点一下目标位置，Alt+V 放下',
+        'hint.reference': '给这段挂参考材料，让助手只按材料改这一段',
+        moveBanner: '移动「{quote}」',
+        moveHowTo: '在同一条回答里点一下要放的位置（拖选一段则替换那段），再按 Alt+V 或点「放到这里」；Esc 取消',
+        moveReady: '放在闪烁竖线之后：…{before}▮{after}…',
+        moveReplaceReady: '替换选中的「{quote}」',
+        moveOverlap: '被替换的文字不能和被移动的文字重叠',
+        movePlaceReplace: '移到这里替换',
+        moveReplaceLabel: '替换',
+        moveNoTarget: '还没选位置：先在同一条回答里点一下要放的地方',
+        moveOtherMessage: '只能移到同一条回答里',
+        moveSamePlace: '目标位置在被移动的文字里面或就在原处，换一个地方',
+        moveUnanchored: '这段文字不在某一条回答里，没法移动',
+        movePlace: '放到这里',
+        moveReasonPlaceholder: '理由（可选）',
+        moveTargetLabel: '移到',
+        reasonLabel: '理由',
+        requirementLabel: '要求',
+        materialLabel: '材料',
+        refTabText: '粘贴文本',
+        refTabUrl: '链接',
+        refTabFile: '文件',
+        refTitlePlaceholder: '材料名称（可选），如：教材第 3 章',
+        refTextPlaceholder: '把参考材料粘贴在这里…',
+        refUrlPlaceholder: 'https://…',
+        refFileChoose: '选择文件',
+        refFileNone: '还没选文件',
+        refFileHint: '支持 txt、md、csv、json、html 等纯文本；PDF、Word 请先复制文字再粘贴',
+        refNotePlaceholder: '要求（可选），如：按材料的口径改写这一段，其余不动',
+        refTooLong: '材料太长（最多 {max} 字），只保留和这一段相关的部分',
+        refFileError: '读不了这个文件，请改为粘贴文本',
+        refBadUrl: '链接要以 http:// 或 https:// 开头',
+        chars: '{count} 字',
         unmark: '清除标记',
         close: '关闭',
         delete: '删除',
@@ -141,6 +196,41 @@ window.__ModuleLoader__.load({
         'hint.comment': 'Leave a note the assistant must act on',
         'hint.rewrite': 'Replace this passage with your own words',
         'hint.quote': 'Quote the selection into the composer',
+        move: 'Move',
+        reference: 'Source',
+        'hint.move': 'Move this passage: Alt+C picks it up, click the target spot in the same answer, Alt+V drops it',
+        'hint.reference': 'Attach reference material; the assistant revises only this passage to match it',
+        moveBanner: 'Move "{quote}"',
+        moveHowTo: 'Click where it should go in the same answer (drag over text to replace it), then press Alt+V or "Drop here"; Esc cancels',
+        moveReady: 'Goes right after the blinking caret: …{before}▮{after}…',
+        moveReplaceReady: 'Replaces the selected "{quote}"',
+        moveOverlap: 'The replaced text cannot overlap the passage being moved',
+        movePlaceReplace: 'Replace with it',
+        moveReplaceLabel: 'Replaces',
+        moveNoTarget: 'No target yet: click the spot in the same answer first',
+        moveOtherMessage: 'A passage can only move within the same answer',
+        moveSamePlace: 'The target is inside the passage or where it already is; pick another spot',
+        moveUnanchored: 'This text is not part of an answer and cannot be moved',
+        movePlace: 'Drop here',
+        moveReasonPlaceholder: 'Why (optional)',
+        moveTargetLabel: 'Move to',
+        reasonLabel: 'Why',
+        requirementLabel: 'Ask',
+        materialLabel: 'Material',
+        refTabText: 'Paste text',
+        refTabUrl: 'Link',
+        refTabFile: 'File',
+        refTitlePlaceholder: 'Material name (optional), e.g. Textbook ch. 3',
+        refTextPlaceholder: 'Paste the reference material here…',
+        refUrlPlaceholder: 'https://…',
+        refFileChoose: 'Choose file',
+        refFileNone: 'No file chosen',
+        refFileHint: 'Plain-text files (txt, md, csv, json, html…); for PDF or Word, copy the text and paste it',
+        refNotePlaceholder: 'Instruction (optional), e.g. rewrite this passage to match the material',
+        refTooLong: 'Material too long (max {max} characters); keep only the relevant part',
+        refFileError: 'Could not read this file; paste the text instead',
+        refBadUrl: 'The link must start with http:// or https://',
+        chars: '{count} chars',
         unmark: 'Remove marks',
         close: 'Close',
         delete: 'Delete',
@@ -274,6 +364,14 @@ window.__ModuleLoader__.load({
         pending: 'background-color:color-mix(in srgb,#a06bff 22%,transparent);text-decoration:line-through;text-decoration-color:#a06bff',
         resolved: 'text-decoration:line-through;text-decoration-color:color-mix(in srgb,#a06bff 50%,transparent)',
       },
+      move: {
+        pending: 'background-color:color-mix(in srgb,#ff8a3d 20%,transparent);text-decoration:underline dashed;text-decoration-thickness:2px;text-underline-offset:3px;text-decoration-color:#ff8a3d',
+        resolved: 'text-decoration:underline dashed;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,#ff8a3d 50%,transparent)',
+      },
+      reference: {
+        pending: 'background-color:color-mix(in srgb,#19b5c9 20%,transparent);text-decoration:underline double;text-underline-offset:3px;text-decoration-color:#19b5c9',
+        resolved: 'text-decoration:underline double;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,#19b5c9 50%,transparent)',
+      },
     }
 
     function highlightName(style, status) {
@@ -311,6 +409,30 @@ window.__ModuleLoader__.load({
       '.dsa-tool-glyph-comment{border-radius:50%;background:#2fb36f}',
       '.dsa-tool-glyph-rewrite{background:#a06bff}',
       '.dsa-tool-glyph-quote{width:9px;height:9px;border-left:3px solid var(--dsw-alias-label-secondary,#a3a8b4);border-radius:0}',
+      '.dsa-tool-glyph-move{width:12px;height:9px;border-radius:0;border-bottom:2px dashed #ff8a3d}',
+      '.dsa-tool-glyph-reference{border:2px solid #19b5c9;background:transparent}',
+      '.dsa-toolbar.is-rows{flex-direction:column;align-items:stretch;gap:2px}',
+      '.dsa-tool-row{display:flex;align-items:center;gap:2px}',
+      '.dsa-kbd{margin-left:1px;padding:0 3px;border-radius:3px;border:1px solid var(--dsw-alias-border-l1,#3b3f4a);',
+      'font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary,#8a8f9c)}',
+      '.dsa-toolbar.is-ref{min-width:320px;max-width:min(460px,86vw)}',
+      '.dsa-ref-dialog{position:fixed;left:50%;bottom:132px;transform:translateX(-50%);z-index:71;width:min(460px,calc(100vw - 32px));',
+      'max-height:calc(100vh - 180px);overflow-y:auto;animation:dsa-panel-in 140ms ease-out}',
+      '.dsa-ref-file input[type=file]{display:none}',
+      '.dsa-ref-tabs{display:inline-flex;gap:2px;padding:2px;border-radius:7px;background:var(--dsw-alias-bg-layer-2,#343844);align-self:flex-start}',
+      '.dsa-ref-tab{height:22px;padding:0 9px;border:0;border-radius:5px;background:transparent;color:var(--dsw-alias-label-secondary,#a3a8b4);',
+      'font:inherit;font-size:12px;line-height:1;cursor:pointer}',
+      '.dsa-ref-tab.is-on{background:var(--dsw-alias-bg-overlay,#2a2d36);color:var(--dsw-alias-label-primary,#f2f4f7);box-shadow:0 1px 2px rgba(0,0,0,.25)}',
+      '.dsa-ref-line,.dsa-move-reason{height:30px;padding:0 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1,#3b3f4a);',
+      'background:var(--dsw-alias-bg-layer-1,#20232b);color:var(--dsw-alias-label-primary,#f2f4f7);font:inherit;font-size:13px}',
+      '.dsa-ref-line{width:100%}',
+      '.dsa-ref-meta{display:flex;justify-content:space-between;gap:8px;font-size:11px;line-height:15px;color:var(--dsw-alias-label-tertiary,#8a8f9c)}',
+      '.dsa-ref-file{display:flex;align-items:center;gap:8px;min-width:0;font-size:12px;color:var(--dsw-alias-label-secondary,#a3a8b4)}',
+      '.dsa-ref-file span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.dsa-ref-file input{display:none}',
+      '.dsa-ref-error{margin:0;font-size:11.5px;line-height:16px;color:var(--dsw-alias-state-error-primary,#ff6b6b)}',
+      '.dsa-note-input.is-small{min-height:40px}',
+      '.dsa-ref-tab:focus-visible,.dsa-ref-line:focus-visible,.dsa-move-reason:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#4d7cfe);outline-offset:1px}',
       '.dsa-tool-divider{width:1px;height:16px;margin:0 2px;flex:none;background:var(--dsw-alias-border-l1,#3b3f4a)}',
       '.dsa-tool-close{width:26px;height:26px;padding:0;display:inline-grid;place-items:center;border:0;border-radius:7px;',
       'background:transparent;color:var(--dsw-alias-label-secondary,#a3a8b4);font:inherit;font-size:15px;line-height:1;cursor:pointer}',
@@ -364,6 +486,18 @@ window.__ModuleLoader__.load({
       '.dsa-chip-strike{background:color-mix(in srgb,#e5484d 22%,transparent)}',
       '.dsa-chip-comment{background:color-mix(in srgb,#2fb36f 24%,transparent)}',
       '.dsa-chip-rewrite{background:color-mix(in srgb,#a06bff 24%,transparent)}',
+      '.dsa-chip-move{background:color-mix(in srgb,#ff8a3d 24%,transparent)}',
+      '.dsa-chip-reference{background:color-mix(in srgb,#19b5c9 24%,transparent)}',
+      '.dsa-move-banner{position:fixed;left:50%;bottom:132px;transform:translateX(-50%);z-index:71;pointer-events:auto;',
+      'display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:max-content;max-width:min(760px,calc(100vw - 32px));padding:8px 10px;',
+      'border-radius:10px;border:1px solid #ff8a3d;background:var(--dsw-alias-bg-overlay,#2a2d36);color:var(--dsw-alias-label-primary,#f2f4f7);',
+      'box-shadow:0 12px 32px rgba(0,0,0,.32);font-family:inherit;font-size:12.5px;line-height:1.5}',
+      '.dsa-move-text{flex:1 1 280px;min-width:0}',
+      '.dsa-move-title{font-weight:600}',
+      '.dsa-move-state{display:block;font-size:11.5px;color:var(--dsw-alias-label-secondary,#a3a8b4);word-break:break-all}',
+      '.dsa-move-state.is-ready{color:#ff8a3d}',
+      '.dsa-move-state.is-error{color:var(--dsw-alias-state-error-primary,#ff6b6b)}',
+      '.dsa-move-reason{width:170px;height:26px;font-size:12px}',
       '.dsa-item-main{flex:1;min-width:0}',
       '.dsa-quote{margin:0;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-primary,#f2f4f7);',
       'overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;word-break:break-word}',
@@ -389,7 +523,7 @@ window.__ModuleLoader__.load({
       '.dsa-lessons-empty{margin:0 0 4px;font-size:11.5px;line-height:1.5;color:var(--dsw-alias-label-tertiary,#8a8f9c)}',
       '.dsa-panel-foot{flex:none;display:flex;align-items:center;gap:8px;padding:8px 12px 10px;flex-wrap:wrap;',
       'border-top:1px solid var(--dsw-alias-border-l1,#3b3f4a)}',
-      '.dsa-hint{flex:1;min-width:0;margin:0;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary,#a3a8b4)}',
+      '.dsa-hint{flex:1 1 100%;min-width:0;margin:0;font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary,#a3a8b4)}',
       '.dsa-btn{flex:none;height:26px;padding:0 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1,#3b3f4a);',
       'background:transparent;color:var(--dsw-alias-label-primary,#f2f4f7);font:inherit;font-size:12px;cursor:pointer}',
       '.dsa-btn.is-primary{background:var(--dsw-alias-brand-primary,#4d7cfe);border-color:transparent;color:var(--dsw-alias-label-primary-foreground,#10131a)}',
@@ -408,6 +542,15 @@ window.__ModuleLoader__.load({
       CSS_LINES.push('::highlight(' + highlightName(style, 'pending') + '){' + MARK_COLORS[style].pending + '}')
       CSS_LINES.push('::highlight(' + highlightName(style, 'resolved') + '){' + MARK_COLORS[style].resolved + '}')
     })
+    CSS_LINES.push('::highlight(dsa-move-pending){background-color:color-mix(in srgb,#ff8a3d 34%,transparent);text-decoration:underline dashed;text-decoration-thickness:2px;text-decoration-color:#ff8a3d}')
+    CSS_LINES.push('::highlight(dsa-move-replace){background-color:color-mix(in srgb,#ff8a3d 26%,transparent);text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:#ff8a3d}')
+    CSS_LINES.push('.dsa-caret{position:fixed;z-index:69;width:2px;margin-left:-1px;border-radius:1px;background:#ff8a3d;pointer-events:none;' +
+      'box-shadow:0 0 0 1px color-mix(in srgb,#ff8a3d 35%,transparent);animation:dsa-blink 1.06s steps(1,end) infinite}')
+    CSS_LINES.push('.dsa-caret.is-saved{opacity:.85}')
+    CSS_LINES.push('@keyframes dsa-blink{0%{opacity:1}50%{opacity:0}}')
+    CSS_LINES.push('#' + CARET_LAYER_ID + '.is-scrolling .dsa-caret{visibility:hidden}')
+    CSS_LINES.push('@media (prefers-reduced-motion:reduce){.dsa-caret{animation:none}}')
+    CSS_LINES.push('::highlight(dsa-ref-pending){background-color:color-mix(in srgb,#19b5c9 34%,transparent);text-decoration:underline double;text-decoration-color:#19b5c9}')
     var CSS_TEXT = CSS_LINES.join('\n')
 
     // ------------------------------------------------------------------- icons
@@ -915,6 +1058,10 @@ window.__ModuleLoader__.load({
           CSS.highlights.delete(highlightName(style, 'pending'))
           CSS.highlights.delete(highlightName(style, 'resolved'))
         })
+        MOVE_EXTRA_HIGHLIGHTS.forEach(function (name) {
+          CSS.highlights.delete(name)
+        })
+        removeCarets()
       } catch (error) {
         console.error('dsh-mindmark: cannot clear highlights', error)
       }
@@ -938,6 +1085,46 @@ window.__ModuleLoader__.load({
           var name = highlightName(item.annotation.style, item.annotation.status)
           if (groups[name]) groups[name].push(item.range)
         }
+        MOVE_EXTRA_HIGHLIGHTS.forEach(function (extra) {
+          groups[extra] = []
+        })
+        var cache = {}
+        var carets = []
+        function markTarget(entry, prefix, quote, suffix, saved) {
+          if (entry === null) return
+          var spot = locateTargetIn(entry.index, prefix, quote, suffix)
+          if (spot === null) return
+          if (spot.end > spot.start) {
+            var replaced = rangeFromOffsets(entry.index, spot.start, spot.end)
+            if (replaced !== null) groups['dsa-move-replace'].push(replaced)
+          } else {
+            var box = visibleCaret(entry, spot.start, saved)
+            if (box !== null) carets.push(box)
+          }
+        }
+        for (var moveIndex = 0; moveIndex < annotations.length; moveIndex += 1) {
+          var move = annotations[moveIndex]
+          if (move.style !== 'move' || move.status === 'resolved') continue
+          markTarget(ensureIndexEntry(cache, move.rootSelector), move.targetPrefix, move.targetQuote, move.targetSuffix, true)
+        }
+        var pendingRef = current.referenceDraft
+        if (pendingRef && pendingRef.built && current.sessionId !== null) {
+          var refEntry = ensureIndexEntry(cache, pendingRef.built.record.rootSelector)
+          var refRange = refEntry === null ? null : locateAnnotationRange(pendingRef.built.record, refEntry.index)
+          if (refRange !== null) groups['dsa-ref-pending'].push(refRange)
+        }
+        var pendingMove = current.pendingMove
+        if (pendingMove && pendingMove.built && current.sessionId !== null) {
+          var pendingEntry = ensureIndexEntry(cache, pendingMove.built.record.rootSelector)
+          if (pendingEntry !== null) {
+            var sourceRange = locateAnnotationRange(pendingMove.built.record, pendingEntry.index)
+            if (sourceRange !== null) groups['dsa-move-pending'].push(sourceRange)
+            if (pendingMove.target) {
+              markTarget(pendingEntry, pendingMove.target.prefix, pendingMove.target.quote, pendingMove.target.suffix, false)
+            }
+          }
+        }
+        drawCarets(carets)
         Object.keys(groups).forEach(function (name) {
           setHighlightGroup(name, groups[name])
         })
@@ -1024,6 +1211,148 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // The rendered body of one answer that contains `node`, or null.
+    function messageBodyOf(node) {
+      var element = elementOfNode(node)
+      if (!element || typeof element.closest !== 'function' || isOurUiElement(element)) return null
+      try {
+        return element.closest('[data-text-interaction-source]')
+      } catch (error) {
+        return null
+      }
+    }
+
+    function messageKeyOf(body, index) {
+      var item = body.closest('[data-chat-node-key]')
+      var key = item && typeof item.getAttribute === 'function' ? item.getAttribute('data-chat-node-key') : null
+      if (!key) key = 'text:' + hashText(index.text)
+      return clipString(key, 200)
+    }
+
+    // Where a move would land, read from the selection inside an answer: a
+    // collapsed selection (a click) is an insertion point; a selection over
+    // some text means that text is replaced. Returns the message key, the
+    // offsets, the replaced text (`quote`, '' for an insertion) and the text
+    // right before and after.
+    function caretTarget() {
+      try {
+        var nativeSelection = typeof window.getSelection === 'function' ? window.getSelection() : null
+        if (!nativeSelection || nativeSelection.rangeCount === 0) return null
+        var range = nativeSelection.getRangeAt(0)
+        var body = messageBodyOf(range.startContainer)
+        if (!body) return null
+        var index = buildIndex(body)
+        if (!index.text || index.text.length > MAX_MESSAGE_TEXT) return null
+        var offset = offsetOf(index, range.startContainer, range.startOffset)
+        var end = offset
+        if (!range.collapsed && messageBodyOf(range.endContainer) === body) {
+          end = offsetOf(index, range.endContainer, range.endOffset)
+          if (end - offset > MAX_QUOTE || index.text.slice(offset, end).trim().length === 0) end = offset
+        }
+        if (end < offset) end = offset
+        return {
+          key: messageKeyOf(body, index),
+          offset: offset,
+          end: end,
+          quote: index.text.slice(offset, end),
+          prefix: index.text.slice(Math.max(0, offset - CONTEXT_MAX), offset),
+          suffix: index.text.slice(end, Math.min(index.text.length, end + CONTEXT_MAX)),
+        }
+      } catch (error) {
+        return null
+      }
+    }
+
+    // Offsets of a move target inside an indexed root, found by its context.
+    function locateTargetIn(index, prefix, quote, suffix) {
+      var before = typeof prefix === 'string' ? prefix : ''
+      var middle = typeof quote === 'string' ? quote : ''
+      var after = typeof suffix === 'string' ? suffix : ''
+      if (!index || !index.text || before.length + middle.length + after.length === 0) return null
+      var found = index.text.indexOf(before + middle + after)
+      if (found < 0) return null
+      var start = found + before.length
+      return { start: start, end: start + middle.length }
+    }
+
+    // The on-screen box of the caret at an insertion point: the left edge of
+    // the next character, or the right edge of the previous one at a line end.
+    function caretBox(index, at) {
+      var text = index.text
+      function rectOf(start, end, side) {
+        var range = rangeFromOffsets(index, start, end)
+        if (range === null) return null
+        var rects = range.getClientRects()
+        var rect = rects.length > 0 ? (side === 'left' ? rects[0] : rects[rects.length - 1]) : null
+        if (!rect || (rect.width === 0 && rect.height === 0)) return null
+        return { x: side === 'left' ? rect.left : rect.right, top: rect.top, height: rect.height }
+      }
+      var next = at < text.length && !/\s/.test(text.charAt(at)) ? rectOf(at, at + 1, 'left') : null
+      if (next !== null) return next
+      var previous = at > 0 && text.charAt(at - 1) !== '\n' ? rectOf(at - 1, at, 'right') : null
+      if (previous !== null) return previous
+      return at < text.length ? rectOf(at, at + 1, 'left') : null
+    }
+
+    // Blinking carets live in one fixed layer outside the chat DOM.
+    var caretScrollTimer = null
+
+    function caretLayer() {
+      var layer = document.getElementById(CARET_LAYER_ID)
+      if (layer === null && document.body) {
+        layer = document.createElement('div')
+        layer.id = CARET_LAYER_ID
+        layer.setAttribute(UI_ATTR, '1')
+        layer.setAttribute('aria-hidden', 'true')
+        document.body.appendChild(layer)
+      }
+      return layer
+    }
+
+    function hideCaretsWhileScrolling() {
+      var layer = document.getElementById(CARET_LAYER_ID)
+      if (layer === null) return
+      layer.classList.add('is-scrolling')
+      if (caretScrollTimer !== null) clearTimeout(caretScrollTimer)
+      caretScrollTimer = setTimeout(function () {
+        caretScrollTimer = null
+        layer.classList.remove('is-scrolling')
+      }, MUTATION_DEBOUNCE + 60)
+    }
+
+    function drawCarets(boxes) {
+      var layer = caretLayer()
+      if (layer === null) return
+      while (layer.childNodes.length > boxes.length) layer.removeChild(layer.lastChild)
+      for (var index = 0; index < boxes.length; index += 1) {
+        var box = boxes[index]
+        var caret = layer.childNodes[index]
+        if (!caret) {
+          caret = document.createElement('div')
+          layer.appendChild(caret)
+        }
+        caret.className = 'dsa-caret' + (box.saved ? ' is-saved' : '')
+        caret.style.left = box.x + 'px'
+        caret.style.top = box.top + 'px'
+        caret.style.height = box.height + 'px'
+      }
+    }
+
+    function removeCarets() {
+      var layer = document.getElementById(CARET_LAYER_ID)
+      if (layer !== null && layer.parentNode !== null) layer.parentNode.removeChild(layer)
+    }
+
+    // A caret box clipped to its scroll container, or null when scrolled out.
+    function visibleCaret(entry, at, saved) {
+      var box = caretBox(entry.index, at)
+      if (box === null) return null
+      var bounds = entry.root && entry.root !== document.body ? entry.root.getBoundingClientRect() : null
+      if (bounds && (box.top + box.height < bounds.top || box.top > bounds.bottom)) return null
+      box.saved = saved === true
+      return box
+    }
+
     function hashText(text) {
       var hash = 5381
       for (var index = 0; index < text.length; index += 1) hash = ((hash << 5) + hash + text.charCodeAt(index)) | 0
@@ -1100,6 +1429,10 @@ window.__ModuleLoader__.load({
       loading: false,
       error: null,
       panelOpen: false,
+      // { built, target, reason, error } while a passage waits for Alt+V.
+      pendingMove: null,
+      // The open reference form: { built, kind, title, content, url, fileName, text, error }.
+      referenceDraft: null,
     }
     var stateListeners = new Set()
     var loadToken = 0
@@ -1163,7 +1496,40 @@ window.__ModuleLoader__.load({
         record.messageEnd = raw.messageEnd
       }
       if (typeof raw.turn === 'number') record.turn = raw.turn
+      if (raw.style === 'move') {
+        record.targetPrefix = clipString(raw.targetPrefix, CONTEXT_MAX)
+        record.targetSuffix = clipString(raw.targetSuffix, CONTEXT_MAX)
+        if (record.targetPrefix.length === 0 && record.targetSuffix.length === 0) return null
+        if (typeof raw.targetOffset === 'number') record.targetOffset = raw.targetOffset
+        if (typeof raw.targetQuote === 'string' && raw.targetQuote.trim().length > 0) {
+          record.targetQuote = clipString(raw.targetQuote, MAX_QUOTE)
+          if (typeof raw.targetEnd === 'number') record.targetEnd = raw.targetEnd
+        }
+      }
+      if (raw.style === 'reference') {
+        var material = normalizeMaterial(raw.material)
+        if (material === null) return null
+        record.material = material
+      }
       return record
+    }
+
+    // Display-side material metadata; the content itself stays on the Host.
+    function normalizeMaterial(raw) {
+      if (!raw || typeof raw !== 'object' || MATERIAL_KINDS.indexOf(raw.kind) < 0) return null
+      var title = clipString(typeof raw.title === 'string' ? raw.title : '', 120)
+      if (raw.kind === 'url') {
+        var url = typeof raw.url === 'string' ? raw.url : typeof raw.content === 'string' ? raw.content.trim() : ''
+        if (!/^https?:\/\//i.test(url)) return null
+        return { kind: 'url', title: title, url: url, length: 0, excerpt: '' }
+      }
+      var content = typeof raw.content === 'string' ? raw.content.trim() : ''
+      return {
+        kind: raw.kind,
+        title: title,
+        length: typeof raw.length === 'number' ? raw.length : content.length,
+        excerpt: clipString(typeof raw.excerpt === 'string' ? raw.excerpt : content, 600),
+      }
     }
 
     function normalizeAnnotationList(raw) {
@@ -1194,6 +1560,18 @@ window.__ModuleLoader__.load({
         wire.messageEnd = record.messageEnd
       }
       if (typeof record.turn === 'number') wire.turn = record.turn
+      if (record.style === 'move') {
+        wire.targetPrefix = record.targetPrefix
+        wire.targetSuffix = record.targetSuffix
+        if (typeof record.targetOffset === 'number') wire.targetOffset = record.targetOffset
+        if (typeof record.targetQuote === 'string' && record.targetQuote.length > 0) {
+          wire.targetQuote = record.targetQuote
+          if (typeof record.targetEnd === 'number') wire.targetEnd = record.targetEnd
+        }
+      }
+      if (record.style === 'reference' && record.material) {
+        wire.material = { kind: record.material.kind, title: record.material.title, content: record.material.content }
+      }
       return wire
     }
 
@@ -1335,6 +1713,8 @@ window.__ModuleLoader__.load({
         loading: sessionId !== null,
         error: null,
         panelOpen: sessionId === null ? false : state.panelOpen,
+        pendingMove: null,
+        referenceDraft: null,
       })
       if (sessionId !== null) loadSession(sessionId)
     }
@@ -1363,7 +1743,8 @@ window.__ModuleLoader__.load({
       }
       loadToken += 1
       publishState({ annotations: state.annotations.concat([record]), loading: false, error: null })
-      var body = { action: 'add', sessionId: sessionId, annotation: wireRecord(record) }
+      // The wire copy comes from the raw record: it still carries the material text.
+      var body = { action: 'add', sessionId: sessionId, annotation: wireRecord(annotation) }
       if (message && typeof message.text === 'string') body.message = message
       enqueueMutation(function () {
         return postAction(body).then(
@@ -1523,6 +1904,105 @@ window.__ModuleLoader__.load({
       })
     }
 
+    function copyOf(object, patch) {
+      var next = {}
+      for (var key in object) next[key] = object[key]
+      for (var patchKey in patch) next[patchKey] = patch[patchKey]
+      return next
+    }
+
+    function startMove(built) {
+      if (state.sessionId === null || !built || !built.record) return
+      publishState({
+        pendingMove: { built: built, target: null, reason: '', error: built.message === null ? 'moveUnanchored' : '' },
+      })
+    }
+
+    function setMoveTarget(target) {
+      var pending = state.pendingMove
+      if (!pending || !target || pending.error === 'moveUnanchored') return
+      var record = pending.built.record
+      var error = ''
+      var replaces = typeof target.end === 'number' && target.end > target.offset
+      if (pending.built.message && target.key !== pending.built.message.key) error = 'moveOtherMessage'
+      else if (typeof record.messageStart === 'number') {
+        if (replaces && target.offset < record.messageEnd && target.end > record.messageStart) error = 'moveOverlap'
+        else if (!replaces && target.offset >= record.messageStart && target.offset <= record.messageEnd) error = 'moveSamePlace'
+      }
+      publishState({ pendingMove: copyOf(pending, { target: error === '' ? target : null, error: error }) })
+    }
+
+    function setMoveReason(text) {
+      var pending = state.pendingMove
+      if (!pending) return
+      publishState({ pendingMove: copyOf(pending, { reason: clipString(String(text || ''), MAX_NOTE) }) })
+    }
+
+    function cancelMove() {
+      if (state.pendingMove) publishState({ pendingMove: null })
+    }
+
+    function placeMove() {
+      var pending = state.pendingMove
+      if (!pending) return false
+      if (pending.error === 'moveUnanchored') return false
+      if (!pending.target) {
+        publishState({ pendingMove: copyOf(pending, { error: pending.error || 'moveNoTarget' }) })
+        return false
+      }
+      var record = copyOf(pending.built.record, {
+        id: createClientId(),
+        style: 'move',
+        note: String(pending.reason || '').trim(),
+        targetPrefix: pending.target.prefix,
+        targetSuffix: pending.target.suffix,
+        targetOffset: pending.target.offset,
+        createdAt: new Date().toISOString(),
+      })
+      if (pending.target.quote) {
+        record.targetQuote = pending.target.quote
+        record.targetEnd = pending.target.end
+      }
+      publishState({ pendingMove: null })
+      addAnnotation(record, pending.built.message)
+      return true
+    }
+
+    function startReference(built) {
+      if (state.sessionId === null || !built || !built.record) return
+      publishState({
+        referenceDraft: { built: built, kind: 'text', title: '', content: '', url: '', fileName: '', text: '', error: '' },
+      })
+    }
+
+    function patchReference(patch) {
+      if (!state.referenceDraft) return
+      publishState({ referenceDraft: copyOf(state.referenceDraft, patch) })
+    }
+
+    function cancelReference() {
+      if (state.referenceDraft) publishState({ referenceDraft: null })
+    }
+
+    // Returns an error dictionary key, or '' once the reference is saved.
+    function submitReference() {
+      var draft = state.referenceDraft
+      if (!draft) return ''
+      if (!referenceReady(draft)) return draft.kind === 'url' ? 'refBadUrl' : ''
+      var record = copyOf(draft.built.record, {
+        style: 'reference',
+        note: String(draft.text || '').trim().slice(0, MAX_NOTE),
+        material: {
+          kind: draft.kind,
+          title: String(draft.title || '').trim(),
+          content: draft.kind === 'url' ? String(draft.url || '').trim() : String(draft.content || ''),
+        },
+      })
+      publishState({ referenceDraft: null })
+      addAnnotation(record, draft.built.message)
+      return ''
+    }
+
     function setPanelOpen(open) {
       var next = open === true
       if (state.panelOpen === next) return
@@ -1550,6 +2030,15 @@ window.__ModuleLoader__.load({
         setStatus(ids, 'pending')
       },
       setMode: setMode,
+      startMove: startMove,
+      startReference: startReference,
+      patchReference: patchReference,
+      cancelReference: cancelReference,
+      submitReference: submitReference,
+      setMoveTarget: setMoveTarget,
+      setMoveReason: setMoveReason,
+      cancelMove: cancelMove,
+      placeMove: placeMove,
       forgetLesson: forgetLesson,
       requestDistill: requestDistill,
       togglePanel: togglePanel,
@@ -1588,7 +2077,21 @@ window.__ModuleLoader__.load({
         },
         props.glyph ? h('span', { className: 'dsa-tool-glyph dsa-tool-glyph-' + props.glyph, 'aria-hidden': 'true' }) : null,
         h('span', null, props.label),
+        props.kbd ? h('span', { className: 'dsa-kbd', 'aria-hidden': 'true' }, props.kbd) : null,
       )
+    }
+
+    // Wrap a material name in 《》 unless it already starts with a title mark.
+    function bookTitle(title) {
+      var text = String(title || '').trim() || '—'
+      return /^[《「“"]/.test(text) ? text : '《' + text + '》'
+    }
+
+    function referenceReady(draft) {
+      if (!draft) return false
+      if (draft.kind === 'url') return /^https?:\/\/\S+$/i.test(String(draft.url || '').trim())
+      var length = String(draft.content || '').trim().length
+      return length > 0 && length <= MAX_MATERIAL
     }
 
     // The action bar the Chat view mounts next to a selection. `props` carry the
@@ -1609,9 +2112,10 @@ window.__ModuleLoader__.load({
         },
         [sessionId, current.sessionId],
       )
+      var focusKey = draft === null ? '' : draft.style
       useEffect(
         function () {
-          if (draft !== null && inputRef.current && typeof inputRef.current.focus === 'function') {
+          if (focusKey !== '' && inputRef.current && typeof inputRef.current.focus === 'function') {
             try {
               inputRef.current.focus()
             } catch (error) {
@@ -1619,7 +2123,7 @@ window.__ModuleLoader__.load({
             }
           }
         },
-        [draft],
+        [focusKey],
       )
 
       function dismiss() {
@@ -1640,6 +2144,18 @@ window.__ModuleLoader__.load({
         var built = buildRecord(range, style)
         if (built === null) {
           dismiss()
+          return
+        }
+        if (style === 'move') {
+          controller.startMove(built)
+          paintNow()
+          finish()
+          return
+        }
+        if (style === 'reference') {
+          controller.startReference(built)
+          paintNow()
+          finish()
           return
         }
         if (NOTE_STYLES[style] === true) {
@@ -1744,38 +2260,86 @@ window.__ModuleLoader__.load({
         )
       }
 
+      // While a passage waits to be dropped, a selection in the answer is the
+      // text it would replace: offer exactly that.
+      if (current.pendingMove !== null) {
+        var pendingTarget = current.pendingMove.target
+        var canReplace = pendingTarget !== null && Boolean(pendingTarget.quote) && !current.pendingMove.error
+        return h(
+          'div',
+          { className: 'dsa-toolbar', role: 'toolbar', 'aria-label': t('move'), 'data-dsh-mindmark-ui': '1' },
+          canReplace
+            ? h(ToolButton, {
+                label: t('movePlaceReplace'),
+                title: t('moveReplaceReady', { quote: previewQuote(pendingTarget.quote, 30) }),
+                glyph: 'move',
+                kbd: 'Alt+V',
+                onClick: function () {
+                  if (controller.placeMove()) paintNow()
+                  finish()
+                },
+              })
+            : h('span', { className: 'dsa-move-state is-error', style: { padding: '0 8px' } }, t(current.pendingMove.error || 'moveHowTo')),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsa-tool-close',
+              title: t('cancel'),
+              'aria-label': t('cancel'),
+              onPointerDown: keepSelection,
+              onMouseDown: keepSelection,
+              onClick: function () {
+                controller.cancelMove()
+                paintNow()
+                finish()
+              },
+            },
+            '×',
+          ),
+        )
+      }
+
       var hasQuote = props.inputActions && typeof props.inputActions.insertQuote === 'function'
+      function styleButton(style) {
+        return h(ToolButton, {
+          key: style,
+          label: t(style),
+          title: t('hint.' + style),
+          glyph: style,
+          kbd: style === 'move' ? 'Alt+C' : null,
+          onClick: function () {
+            mark(style)
+          },
+        })
+      }
       return h(
         'div',
-        { className: 'dsa-toolbar', role: 'toolbar', 'aria-label': t('toolbarLabel'), 'data-dsh-mindmark-ui': '1' },
-        hasQuote ? h(ToolButton, { label: t('quote'), title: t('hint.quote'), glyph: 'quote', onClick: quote }) : null,
-        hasQuote ? h('span', { className: 'dsa-tool-divider', 'aria-hidden': 'true' }) : null,
-        STYLES.map(function (style) {
-          return h(ToolButton, {
-            key: style,
-            label: t(style),
-            title: t('hint.' + style),
-            glyph: style,
-            onClick: function () {
-              mark(style)
-            },
-          })
-        }),
-        h('span', { className: 'dsa-tool-divider', 'aria-hidden': 'true' }),
-        h(ToolButton, { label: t('unmark'), title: t('unmark'), onClick: unmark }),
+        { className: 'dsa-toolbar is-rows', role: 'toolbar', 'aria-label': t('toolbarLabel'), 'data-dsh-mindmark-ui': '1' },
         h(
-          'button',
-          {
-            type: 'button',
-            className: 'dsa-tool-close',
-            title: t('close'),
-            'aria-label': t('close'),
-            onPointerDown: keepSelection,
-            onMouseDown: keepSelection,
-            onClick: dismiss,
-          },
-          '×',
+          'div',
+          { className: 'dsa-tool-row' },
+          hasQuote ? h(ToolButton, { label: t('quote'), title: t('hint.quote'), glyph: 'quote', onClick: quote }) : null,
+          hasQuote ? h('span', { className: 'dsa-tool-divider', 'aria-hidden': 'true' }) : null,
+          QUICK_STYLES.map(styleButton),
+          h('span', { className: 'dsa-tool-divider', 'aria-hidden': 'true' }),
+          h(ToolButton, { label: t('unmark'), title: t('unmark'), onClick: unmark }),
+          h('span', { className: 'dsa-spacer', 'aria-hidden': 'true' }),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dsa-tool-close',
+              title: t('close'),
+              'aria-label': t('close'),
+              onPointerDown: keepSelection,
+              onMouseDown: keepSelection,
+              onClick: dismiss,
+            },
+            '×',
+          ),
         ),
+        h('div', { className: 'dsa-tool-row' }, INPUT_STYLES.map(styleButton)),
       )
     }
 
@@ -1845,7 +2409,29 @@ window.__ModuleLoader__.load({
       var by = annotation.resolvedBy === 'model' ? t('byModel') : annotation.resolvedBy === 'cap' ? t('byCap') : annotation.resolvedBy === 'user' ? t('byUser') : ''
       var note = null
       if (annotation.note) {
-        note = h('p', { className: 'dsa-note' }, h('b', null, t(annotation.style === 'rewrite' ? 'rewriteLabel' : 'noteLabel')), annotation.note)
+        var noteLabel = { rewrite: 'rewriteLabel', move: 'reasonLabel', reference: 'requirementLabel' }[annotation.style] || 'noteLabel'
+        note = h('p', { className: 'dsa-note' }, h('b', null, t(noteLabel)), annotation.note)
+      }
+      var detail = null
+      if (annotation.style === 'move') {
+        detail = h(
+          'p',
+          { className: 'dsa-note' },
+          h('b', null, t(annotation.targetQuote ? 'moveReplaceLabel' : 'moveTargetLabel')),
+          annotation.targetQuote
+            ? '「' + previewQuote(annotation.targetQuote, 60) + '」'
+            : '…' + previewQuote(annotation.targetPrefix, 400).slice(-18) + ' ▮ ' + previewQuote(annotation.targetSuffix, 18).replace(/…$/, '') + '…',
+        )
+      } else if (annotation.style === 'reference' && annotation.material) {
+        var material = annotation.material
+        detail = h(
+          'p',
+          { className: 'dsa-note' },
+          h('b', null, t('materialLabel')),
+          material.kind === 'url'
+            ? material.url
+            : bookTitle(material.title) + ' ' + t('chars', { count: material.length }),
+        )
       }
       return h(
         'div',
@@ -1855,6 +2441,7 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'dsa-item-main' },
           h('p', { className: 'dsa-quote' }, previewQuote(annotation.quote)),
+          detail,
           note,
           h(
             'p',
@@ -2021,14 +2608,282 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function MoveBanner(props) {
+      var t = props.t
+      var pending = props.pending
+      var target = pending.target
+      var status
+      if (pending.error) status = h('span', { className: 'dsa-move-state is-error' }, t(pending.error))
+      else if (target && target.quote) {
+        status = h('span', { className: 'dsa-move-state is-ready' }, t('moveReplaceReady', { quote: previewQuote(target.quote, 30) }))
+      } else if (target) {
+        status = h(
+          'span',
+          { className: 'dsa-move-state is-ready' },
+          t('moveReady', {
+            before: previewQuote(target.prefix, 400).slice(-12),
+            after: previewQuote(target.suffix, 12).replace(/…$/, ''),
+          }),
+        )
+      } else status = h('span', { className: 'dsa-move-state' }, t('moveHowTo'))
+      return h(
+        'div',
+        { className: 'dsa-move-banner', role: 'status', 'aria-live': 'polite' },
+        h(
+          'div',
+          { className: 'dsa-move-text' },
+          h('span', { className: 'dsa-move-title' }, t('moveBanner', { quote: previewQuote(pending.built.record.quote, 24) })),
+          status,
+        ),
+        h('input', {
+          className: 'dsa-move-reason',
+          type: 'text',
+          maxLength: MAX_NOTE,
+          placeholder: t('moveReasonPlaceholder'),
+          value: pending.reason,
+          onChange: function (event) {
+            controller.setMoveReason(event.target.value)
+          },
+          onKeyDown: function (event) {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              if (controller.placeMove()) paintNow()
+            }
+          },
+        }),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsa-btn is-primary',
+            disabled: !target || pending.error === 'moveUnanchored',
+            onMouseDown: keepSelection,
+            onClick: function () {
+              if (controller.placeMove()) paintNow()
+            },
+          },
+          t('movePlace'),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'dsa-btn',
+            onMouseDown: keepSelection,
+            onClick: function () {
+              controller.cancelMove()
+              paintNow()
+            },
+          },
+          t('cancel'),
+        ),
+      )
+    }
+
+    // The reference form, rendered in the overlay so a native file dialog
+    // (which blurs the window) cannot dismiss it.
+    function ReferenceDialog(props) {
+      var t = props.t
+      var draft = props.draft
+      var inputRef = useRef(null)
+      var fileRef = useRef(null)
+      var length = String(draft.content || '').trim().length
+
+      useEffect(
+        function () {
+          if (inputRef.current && typeof inputRef.current.focus === 'function') {
+            try {
+              inputRef.current.focus()
+            } catch (error) {
+              /* focus is best effort */
+            }
+          }
+        },
+        [draft.kind],
+      )
+
+      function patch(next) {
+        controller.patchReference(next)
+      }
+
+      function submit() {
+        var problem = controller.submitReference()
+        if (problem) patch({ error: t(problem) })
+        else paintNow()
+      }
+
+      function cancel() {
+        controller.cancelReference()
+        paintNow()
+      }
+
+      function keys(event) {
+        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault()
+          submit()
+        }
+      }
+
+      function chooseFile() {
+        var input = fileRef.current
+        if (!input) return
+        try {
+          input.value = ''
+          input.click()
+        } catch (error) {
+          patch({ error: t('refFileError') })
+        }
+      }
+
+      function readFile(event) {
+        var input = event && event.target
+        var file = input && input.files && input.files[0]
+        if (!file) return
+        if (typeof file.size === 'number' && file.size > MAX_MATERIAL_FILE_BYTES) {
+          patch({ error: t('refTooLong', { max: MAX_MATERIAL }), content: '', fileName: '' })
+          return
+        }
+        try {
+          var reader = new FileReader()
+          reader.onload = function () {
+            var text = typeof reader.result === 'string' ? reader.result : ''
+            var current = controller.getState().referenceDraft
+            if (!current) return
+            if (text.indexOf('\u0000') >= 0 || text.trim().length === 0) {
+              patch({ error: t('refFileError'), content: '', fileName: '' })
+            } else if (text.length > MAX_MATERIAL) {
+              patch({ error: t('refTooLong', { max: MAX_MATERIAL }), content: '', fileName: '' })
+            } else {
+              patch({ content: text, fileName: file.name, title: current.title || file.name, error: '' })
+            }
+          }
+          reader.onerror = function () {
+            patch({ error: t('refFileError') })
+          }
+          reader.readAsText(file)
+        } catch (error) {
+          patch({ error: t('refFileError') })
+        }
+      }
+
+      var source
+      if (draft.kind === 'url') {
+        source = h('input', {
+          ref: inputRef,
+          className: 'dsa-ref-line',
+          type: 'url',
+          placeholder: t('refUrlPlaceholder'),
+          value: draft.url,
+          onChange: function (event) {
+            patch({ url: event.target.value, error: '' })
+          },
+          onKeyDown: keys,
+        })
+      } else if (draft.kind === 'file') {
+        source = h(
+          'div',
+          { className: 'dsa-ref-file' },
+          h('button', { ref: inputRef, type: 'button', className: 'dsa-btn', onClick: chooseFile }, t('refFileChoose')),
+          h('input', { ref: fileRef, type: 'file', accept: MATERIAL_FILE_ACCEPT, tabIndex: -1, onChange: readFile }),
+          h('span', { title: draft.fileName }, draft.fileName ? draft.fileName + ' · ' + t('chars', { count: length }) : t('refFileNone')),
+        )
+      } else {
+        source = h('textarea', {
+          ref: inputRef,
+          className: 'dsa-note-input',
+          placeholder: t('refTextPlaceholder'),
+          value: draft.content,
+          rows: 5,
+          onChange: function (event) {
+            patch({ content: event.target.value, error: '' })
+          },
+          onKeyDown: keys,
+        })
+      }
+
+      return h(
+        'div',
+        { className: 'dsa-toolbar is-note is-ref dsa-ref-dialog', role: 'dialog', 'aria-label': t('reference') },
+        h(
+          'div',
+          { className: 'dsa-note-head' },
+          h('span', { className: 'dsa-tool-glyph dsa-tool-glyph-reference', 'aria-hidden': 'true' }),
+          h('span', null, t('reference')),
+        ),
+        h('p', { className: 'dsa-note-quote' }, previewQuote(draft.built.record.quote, 160)),
+        h(
+          'div',
+          { className: 'dsa-ref-tabs', role: 'tablist' },
+          MATERIAL_KINDS.map(function (kind) {
+            var label = kind === 'url' ? 'refTabUrl' : kind === 'file' ? 'refTabFile' : 'refTabText'
+            return h(
+              'button',
+              {
+                key: kind,
+                type: 'button',
+                role: 'tab',
+                'aria-selected': draft.kind === kind ? 'true' : 'false',
+                className: 'dsa-ref-tab' + (draft.kind === kind ? ' is-on' : ''),
+                onClick: function () {
+                  patch({ kind: kind, error: '' })
+                },
+              },
+              t(label),
+            )
+          }),
+        ),
+        draft.kind === 'url'
+          ? null
+          : h('input', {
+              className: 'dsa-ref-line',
+              type: 'text',
+              maxLength: 120,
+              placeholder: t('refTitlePlaceholder'),
+              value: draft.title,
+              onChange: function (event) {
+                patch({ title: event.target.value })
+              },
+              onKeyDown: keys,
+            }),
+        source,
+        draft.kind === 'text'
+          ? h('div', { className: 'dsa-ref-meta' }, h('span', null, ''), h('span', null, t('chars', { count: length })))
+          : draft.kind === 'file'
+            ? h('div', { className: 'dsa-ref-meta' }, h('span', null, t('refFileHint')))
+            : null,
+        h('textarea', {
+          className: 'dsa-note-input is-small',
+          placeholder: t('refNotePlaceholder'),
+          value: draft.text,
+          maxLength: MAX_NOTE,
+          rows: 2,
+          onChange: function (event) {
+            patch({ text: event.target.value })
+          },
+          onKeyDown: keys,
+        }),
+        draft.error ? h('p', { className: 'dsa-ref-error', role: 'alert' }, draft.error) : null,
+        h(
+          'div',
+          { className: 'dsa-note-actions' },
+          h('button', { type: 'button', className: 'dsa-btn', onClick: cancel }, t('cancel')),
+          h('button', { type: 'button', className: 'dsa-btn is-primary', disabled: !referenceReady(draft), onClick: submit }, t('confirm')),
+        ),
+      )
+    }
+
     function AnnotationOverlay(props) {
       var t = props.t
       var current = useControllerState()
-      if (!current.panelOpen) return null
+      var moving = current.pendingMove !== null && current.sessionId !== null
+      var referencing = current.referenceDraft !== null && current.sessionId !== null
+      if (!current.panelOpen && !moving && !referencing) return null
       return h(
         'div',
         { className: 'dsa-layer', 'data-dsh-mindmark-ui': '1' },
-        h(AnnotationPanel, { t: t, state: current, canHighlight: supportsHighlights() }),
+        current.panelOpen ? h(AnnotationPanel, { t: t, state: current, canHighlight: supportsHighlights() }) : null,
+        moving && !referencing ? h(MoveBanner, { t: t, pending: current.pendingMove }) : null,
+        referencing ? h(ReferenceDialog, { t: t, draft: current.referenceDraft }) : null,
       )
     }
 
@@ -2109,16 +2964,96 @@ window.__ModuleLoader__.load({
       var disposed = false
       var watchedSessionId = getState().sessionId
       var watchedAnnotations = getState().annotations
+      var watchedMove = getState().pendingMove
+      var watchedRef = getState().referenceDraft
 
       function onScrollOrResize() {
         if (disposed) return
+        hideCaretsWhileScrolling()
         schedulePaint(MUTATION_DEBOUNCE)
       }
 
+      function isEditableTarget(target) {
+        var element = elementOfNode(target)
+        if (!element) return false
+        var tag = typeof element.tagName === 'string' ? element.tagName.toLowerCase() : ''
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return true
+        try {
+          return element.closest('[contenteditable=""],[contenteditable="true"],[contenteditable="plaintext-only"]') !== null
+        } catch (error) {
+          return false
+        }
+      }
+
+      // Alt+C: pick up the selected passage of an answer.
+      function beginMoveFromSelection() {
+        if (getState().sessionId === null) return false
+        var range = readLiveRange()
+        if (range === null) return false
+        var body = messageBodyOf(range.startContainer)
+        if (body === null || body !== messageBodyOf(range.endContainer)) return false
+        var built = buildRecord(range, 'move')
+        if (built === null) return false
+        controller.startMove(built)
+        try {
+          window.getSelection().removeAllRanges()
+        } catch (error) {
+          /* the selection stays; harmless */
+        }
+        paintNow()
+        return true
+      }
+
       function onKeyDown(event) {
-        if (disposed) return
-        if (!event || (event.key !== 'Escape' && event.key !== 'Esc')) return
+        if (disposed || !event) return
+        var code = event.code
+        if (
+          event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey &&
+          (code === 'KeyC' || code === 'KeyV')
+        ) {
+          // Typing Alt+C in the composer or any other field is not ours.
+          if (isEditableTarget(event.target) && !isOurUiNode(event.target)) return
+          if (event.repeat) {
+            if (code === 'KeyC' || getState().pendingMove) event.preventDefault()
+            return
+          }
+          if (code === 'KeyC') {
+            if (beginMoveFromSelection()) {
+              event.preventDefault()
+              event.stopPropagation()
+            }
+            return
+          }
+          if (getState().pendingMove) {
+            event.preventDefault()
+            event.stopPropagation()
+            if (!isOurUiNode(event.target)) {
+              var target = caretTarget()
+              if (target !== null) controller.setMoveTarget(target)
+            }
+            if (controller.placeMove()) paintNow()
+          }
+          return
+        }
+        if (event.key !== 'Escape' && event.key !== 'Esc') return
+        if (getState().referenceDraft) {
+          controller.cancelReference()
+          paintNow()
+          return
+        }
+        if (getState().pendingMove) {
+          controller.cancelMove()
+          paintNow()
+          return
+        }
         if (getState().panelOpen === true && !isOurUiNode(event.target)) controller.setPanelOpen(false)
+      }
+
+      // While a passage waits to be dropped, every click in an answer moves the target.
+      function onSelectionChange() {
+        if (disposed || !getState().pendingMove) return
+        var target = caretTarget()
+        if (target !== null) controller.setMoveTarget(target)
       }
 
       function onMutations(mutations) {
@@ -2138,15 +3073,23 @@ window.__ModuleLoader__.load({
       function onControllerChange() {
         if (disposed) return
         var current = getState()
-        if (current.sessionId !== watchedSessionId || current.annotations !== watchedAnnotations) {
+        if (
+          current.sessionId !== watchedSessionId ||
+          current.annotations !== watchedAnnotations ||
+          current.pendingMove !== watchedMove ||
+          (current.referenceDraft === null) !== (watchedRef === null)
+        ) {
+          watchedRef = current.referenceDraft
           watchedSessionId = current.sessionId
           watchedAnnotations = current.annotations
+          watchedMove = current.pendingMove
           schedulePaint(STATE_REPAINT_DELAY)
         }
       }
 
       if (typeof document !== 'undefined') {
         disposers.push(addListener(document, 'keydown', onKeyDown, true))
+        disposers.push(addListener(document, 'selectionchange', onSelectionChange, false))
         disposers.push(addListener(document, 'scroll', onScrollOrResize, true))
         if (typeof window !== 'undefined') disposers.push(addListener(window, 'resize', onScrollOrResize, false))
         if (document.body) disposers.push(observeMutations(document.body, onMutations))

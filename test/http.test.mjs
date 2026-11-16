@@ -328,7 +328,7 @@ test('POST rejects oversized bodies with 413 and unsupported media with 415', as
   const oversized = await call(
     createReq('POST', {
       headers: jsonHeaders(),
-      body: 'x'.repeat(65 * 1024),
+      body: 'x'.repeat(1025 * 1024),
     }),
   )
   assert.equal(oversized.status, 413)
@@ -420,7 +420,7 @@ test('apply wires the route, the annotations tool, the prompt section and the pr
     assert.ok(tool, 'the annotations tool must register')
     assert.equal(TOOL_NAME, 'annotations')
     assert.equal(tool.parameters.type, 'object')
-    assert.deepEqual(tool.parameters.properties.action.enum, ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode', 'distill', 'lessons', 'forget'])
+    assert.deepEqual(tool.parameters.properties.action.enum, ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode', 'distill', 'lessons', 'forget', 'material'])
     assert.equal(tool.parameters.additionalProperties, false)
     assert.deepEqual(tool.presentCall({ action: 'delete', ids: ['a'] }), {
       card: 'generic',

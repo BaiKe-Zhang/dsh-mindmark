@@ -29,6 +29,8 @@ import {
   SOURCE_KIND,
   STYLE_META,
   TOOL_NAME,
+  bookTitle,
+  targetText,
 } from './src/inject.js'
 import { LessonStore, resolveInstructionsPath } from './src/lessons.js'
 
@@ -42,7 +44,8 @@ export const SECTION_ORDER = 9100
 /** How many turns one annotation is re-injected before it settles on its own. */
 export const DEFAULT_MAX_INJECTIONS = 3
 
-const MAX_BODY_BYTES = 64 * 1024
+// Room for a pasted reference material (200k characters of CJK text).
+const MAX_BODY_BYTES = 1024 * 1024
 // Plain-browser loopback origins and the Desktop shell's own boundary. The
 // Desktop shell proxies the page's request without an Origin header, so an
 // absent Origin is accepted here exactly like the shipped routes do.
@@ -314,6 +317,24 @@ const TOOL_OUTPUT = {
     changed: { type: 'array', items: { type: 'string' } },
     annotations: { type: 'array', items: ANNOTATION_OUTPUT_ITEM },
     lessons: { type: 'array', items: { type: 'string' } },
+    materials: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: true,
+        properties: {
+          id: { type: 'string' },
+          kind: { type: 'string' },
+          title: { type: 'string' },
+          url: { type: 'string' },
+          total: { type: 'integer' },
+          offset: { type: 'integer' },
+          content: { type: 'string' },
+          nextOffset: { type: 'integer', description: '续读位置；-1 表示已读完' },
+        },
+        required: ['id', 'kind', 'title', 'total', 'offset', 'content'],
+      },
+    },
   },
   required: ['action', 'mode', 'total', 'pending', 'changed', 'annotations', 'lessons'],
 }
@@ -333,6 +354,23 @@ function renderToolResult(_args, value) {
     lines.push(changed.length === 0 ? '没有新的偏好被沉淀（可能已存在）。' : `已沉淀 ${changed.length} 条长期偏好到用户全局 AGENTS.md，新对话会自动遵守。`)
   }
   if (action === 'forget') lines.push(changed.length === 0 ? '没有偏好被移除。' : `已移除 ${changed.length} 条长期偏好。`)
+  if (action === 'material') {
+    const materials = Array.isArray(value?.materials) ? value.materials : []
+    if (materials.length === 0) lines.push('没有找到这些标注的参考材料。')
+    for (const material of materials) {
+      if (material.kind === 'url') {
+        lines.push(`[#${material.id}] 材料是一个链接：${material.url}（请用联网或网页读取工具打开）`)
+        continue
+      }
+      const end = material.offset + material.content.length
+      lines.push(`[#${material.id}] 材料${bookTitle(material.title)}第 ${material.offset + 1}–${end} 字（共 ${material.total} 字）：`)
+      lines.push(material.content)
+      if (Number.isInteger(material.nextOffset) && material.nextOffset >= 0) {
+        lines.push(`（未完，继续读传 offset=${material.nextOffset}）`)
+      }
+    }
+    return [{ type: 'text', text: lines.join('\n') }]
+  }
   if (action === 'distill' || action === 'forget' || action === 'lessons') {
     lines.push(lessons.length === 0 ? '当前没有沉淀的偏好。' : `当前沉淀的偏好（${lessons.length} 条）：`)
     lessons.forEach((lesson, index) => lines.push(`${index + 1}. ${lesson}`))
@@ -348,7 +386,15 @@ function renderToolResult(_args, value) {
     const time = formatLocalTimestamp(annotation?.createdAt)
     const state = annotation?.status === 'resolved' ? '已处理' : '待处理'
     let line = `- [#${annotation?.id}] ${styleLabel(annotation?.style)}（${state}）“${annotation?.quote ?? ''}”`
-    if (annotation?.note) line += `｜${annotation.style === 'rewrite' ? '改为' : '批注'}：${annotation.note}`
+    if (annotation?.style === 'move') line += `｜移到：${targetText(annotation)}`
+    if (annotation?.style === 'reference' && annotation.material) {
+      const material = annotation.material
+      line += material.kind === 'url' ? `｜材料链接：${material.url}` : `｜材料${bookTitle(material.title)}${material.length} 字`
+    }
+    if (annotation?.note) {
+      const label = { rewrite: '改为', move: '理由', reference: '要求' }[annotation.style] ?? '批注'
+      line += `｜${label}：${annotation.note}`
+    }
     if (time !== '') line += `（${time}）`
     lines.push(line)
   }
@@ -359,7 +405,8 @@ function createAnnotationsTool(store) {
   return {
     name: TOOL_NAME,
     description:
-      '查看或处理用户对你之前回答做的标注（高亮/下划线/删除/批注/改写）。' +
+      '查看或处理用户对你之前回答做的标注（高亮/下划线/删除/批注/改写/移动/依据）。' +
+      '依据标注附了用户的参考材料，材料较长时用 action=material（ids 指定标注，offset 续读）读取全文；' +
       '处理完待处理标注后用 action=resolve 确认（ids 可省略表示全部）；' +
       '用户要看标注时 action=list；用户要撤销处理或再处理一遍用 reopen；删除用 delete/clear。' +
       '用户要求把标注归纳成长期偏好/习惯时，先总结成每条一句的可执行偏好，再用 action=distill 写入 lessons；' +
@@ -370,11 +417,16 @@ function createAnnotationsTool(store) {
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode', 'distill', 'lessons', 'forget'],
+          enum: ['list', 'resolve', 'reopen', 'delete', 'clear', 'set-mode', 'distill', 'lessons', 'forget', 'material'],
           description:
             'list=列出（默认）；resolve=确认已处理；reopen=重新打开让它们下一轮再出现；' +
             'delete=按 ids 删除；clear=清空；set-mode=切换注入模式（配合 mode）；' +
-            'distill=把 lessons 里的偏好沉淀到用户全局 AGENTS.md；lessons=列出已沉淀的偏好；forget=移除 lessons 指定的偏好（原文或序号）。',
+            'distill=把 lessons 里的偏好沉淀到用户全局 AGENTS.md；lessons=列出已沉淀的偏好；forget=移除 lessons 指定的偏好（原文或序号）；' +
+            'material=读取依据标注附带的参考材料（配合 ids 与 offset）。',
+        },
+        offset: {
+          type: 'integer',
+          description: 'material 使用：从材料的第几个字开始读，默认 0；上次结果里的 nextOffset 就是续读位置。',
         },
         lessons: {
           type: 'array',
@@ -384,7 +436,7 @@ function createAnnotationsTool(store) {
         ids: {
           type: 'array',
           items: { type: 'string' },
-          description: 'resolve/reopen/delete 作用的标注 id；resolve 与 reopen 省略时表示全部。',
+          description: 'resolve/reopen/delete/material 作用的标注 id；resolve 与 reopen 省略时表示全部；material 省略时读取全部依据标注的材料。',
         },
         mode: {
           type: 'string',
@@ -407,6 +459,7 @@ function createAnnotationsTool(store) {
         ? args.ids.filter(id => typeof id === 'string' && id.trim() !== '')
         : []
       let changed = []
+      let materials
       if (action === 'list') {
         // nothing to change
       } else if (action === 'resolve') {
@@ -432,6 +485,14 @@ function createAnnotationsTool(store) {
         changed = store.lessons.remove(targets)
       } else if (action === 'lessons') {
         // nothing to change
+      } else if (action === 'material') {
+        const offset = Number.isInteger(args?.offset) && args.offset >= 0 ? args.offset : 0
+        const targets = ids.length > 0
+          ? ids
+          : store.list(sessionId).filter(item => item.style === 'reference').map(item => item.id)
+        materials = targets
+          .map(id => store.material(sessionId, id, { offset }))
+          .filter(item => item !== undefined)
       } else {
         throw new AnnotateInputError('invalid-action', '未知的 action。')
       }
@@ -444,6 +505,7 @@ function createAnnotationsTool(store) {
         changed,
         annotations,
         lessons: store.lessons.list().map(lesson => lesson.text),
+        ...(materials === undefined ? {} : { materials }),
       }
     },
     presentCall: args => ({
@@ -454,6 +516,7 @@ function createAnnotationsTool(store) {
         action: args?.action ?? 'list',
         ...(Array.isArray(args?.ids) ? { ids: args.ids } : {}),
         ...(Array.isArray(args?.lessons) ? { lessons: args.lessons } : {}),
+        ...(Number.isInteger(args?.offset) ? { offset: args.offset } : {}),
       },
     }),
   }
