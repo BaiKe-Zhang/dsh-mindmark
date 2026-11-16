@@ -1,0 +1,14 @@
+# dsh-annotate — one Host row that serves the annotations route, the
+# `annotations` tool, the pre-step injection and the protocol prompt section,
+# and carries the Web client bundle. The row name equals the package name so
+# dsh-client-modules can resolve '<row-name>/package.json' and pick up dsh.client.
+#
+# config:
+#   defaultMode:   'brief' | 'full'   (per-session switch in the composer overrides it)
+#   maxInjections: integer            (turns an unresolved annotation is re-sent before it settles)
+- insert:
+    - id: dsh-annotate
+      name: 'dsh-annotate'
+      config:
+        defaultMode: brief
+        maxInjections: 3

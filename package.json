@@ -1,0 +1,55 @@
+{
+  "name": "dsh-annotate",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Word-like annotations (highlight, underline, strike, comment, rewrite) on assistant answers, fed back to the model as context on the next turn.",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "src",
+    "locale",
+    "cordis.patch.yml",
+    "README.md",
+    "icon.svg",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "annotation",
+    "highlight",
+    "underline",
+    "feedback",
+    "revision"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BaiKe-Zhang/dsh-annotate.git"
+  },
+  "homepage": "https://github.com/BaiKe-Zhang/dsh-annotate#readme",
+  "bugs": {
+    "url": "https://github.com/BaiKe-Zhang/dsh-annotate/issues"
+  },
+  "author": "BaiKe-Zhang",
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

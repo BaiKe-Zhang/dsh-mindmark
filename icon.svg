@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Annotation marks">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#f2f4f7"/>
+  <rect x="4.75" y="4.75" width="54.5" height="54.5" rx="13.25" fill="none" stroke="#d3d8e0" stroke-width="1.5"/>
+  <path d="M23.2 39.8 36.4 19.6a2.2 2.2 0 0 1 3.2-.6l4.1 2.8a2.2 2.2 0 0 1 .6 3.2L31.1 45.2l-8.1 2.4Z" fill="#ffd75e" stroke="#8a6412" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="m27.9 42.7 3.2.2 2.5-3.4" fill="none" stroke="#8a6412" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M30.4 47.4 37 51l2.3-6.7Z" fill="#f0a93b" stroke="#8a6412" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M17 51.4h22" fill="none" stroke="#4d7cfe" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M44.5 51.4h3" fill="none" stroke="#4d7cfe" stroke-width="3.2" stroke-linecap="round"/>
+</svg>
