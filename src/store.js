@@ -1,4 +1,4 @@
-// dsh-redpen — durable store for user annotations.
+// dsh-mindmark — durable store for user annotations.
 //
 // The document lives outside every workspace, under the Harness home, because
 // annotations belong to a conversation rather than to one project:
@@ -375,7 +375,7 @@ export function loadStateFile(filePath, { logger } = {}) {
   try {
     ensureDirectory(filePath)
   } catch (error) {
-    logger?.warn?.(`dsh-redpen: cannot create the annotation directory: ${String(error)}`)
+    logger?.warn?.(`dsh-mindmark: cannot create the annotation directory: ${String(error)}`)
     return emptyState()
   }
   let raw
@@ -383,7 +383,7 @@ export function loadStateFile(filePath, { logger } = {}) {
     raw = fs.readFileSync(filePath, 'utf8')
   } catch (error) {
     if (error?.code !== 'ENOENT') {
-      logger?.warn?.(`dsh-redpen: cannot read ${filePath}: ${String(error)}`)
+      logger?.warn?.(`dsh-mindmark: cannot read ${filePath}: ${String(error)}`)
     }
     return emptyState()
   }
@@ -397,7 +397,7 @@ export function loadStateFile(filePath, { logger } = {}) {
       // Best effort: the unreadable original remains in place.
     }
     logger?.warn?.(
-      `dsh-redpen: annotation state was unreadable (${String(error)}); backup at ${backup}`,
+      `dsh-mindmark: annotation state was unreadable (${String(error)}); backup at ${backup}`,
     )
     return emptyState()
   }
@@ -740,7 +740,7 @@ export class AnnotationStore {
       return true
     } catch (error) {
       this.lastSaveError = error
-      this.logger?.warn?.(`dsh-redpen: cannot save ${this.filePath}: ${String(error)}`)
+      this.logger?.warn?.(`dsh-mindmark: cannot save ${this.filePath}: ${String(error)}`)
       return false
     }
   }

@@ -1,10 +1,13 @@
-# dsh-redpen 红笔
+# dsh-mindmark · 思维标注
 
-像老师用红笔批改一样，在对话里对助手的回答做**高亮 / 下划线 / 删除 / 批注 / 改写**，
-并把「你修改后的样子」在下一轮作为上下文送给助手。
+**把你的想法直接标在回答上，让模型看见你怎么想。**
 
-A DeepSeek Harness bundle: red-pen markup on assistant answers, fed back
-to the model as context on the next turn, with a confirmation signal from the model.
+像在 Word 里一样，对助手的回答做**高亮 / 下划线 / 删除 / 批注 / 改写**。
+你的标注会在下一轮作为上下文送给模型：它看到的不再只是自己的回答，而是「你修改后希望它理解的样子」；处理完后它会回传确认。
+
+Show the model your mind. A DeepSeek Harness bundle: mark up an answer like in Word,
+and your markup reaches the model as context on the next turn, with a confirmation
+signal back from the model.
 
 ## 用起来是什么样
 
@@ -40,7 +43,7 @@ to the model as context on the next turn, with a confirmation signal from the mo
 ## 结构
 
 ```
-dsh-redpen/
+dsh-mindmark/
 ├── package.json        # dsh.bundle.patch + dsh.client(platform: web)
 ├── cordis.patch.yml    # 往 profile 插件树插入一行（可配 defaultMode / maxInjections）
 ├── index.js            # Host：HTTP 路由、annotations 工具、pre-step 注入、协议段落
@@ -58,7 +61,7 @@ dsh-redpen/
 - **不依赖宿主 DOM 结构**：标注记录选中原文 + 前后文 + 滚动容器 CSS 路径，恢复时按原文和前后文打分重新定位；
   另外在消息正文（官方的 `data-text-interaction-source` 元素）里记录偏移并捕获全文，供完整模式渲染修订视图。
 - **绘制用 CSS Custom Highlight API**，五种样式各有待处理/已处理两种颜色；不往消息 DOM 里插节点。
-- **HTTP 通道**：`/plugins/dsh-redpen/annotations`，GET 与 POST（list / add / remove / clear / resolve / reopen / set-mode）。
+- **HTTP 通道**：`/plugins/dsh-mindmark/annotations`，GET 与 POST（list / add / remove / clear / resolve / reopen / set-mode）。
 - 标注存在 `$DSH_HOME/annotations/state.json`，按会话分组；与会话日志无关，删会话不会自动删标注。
 
 ## 安装

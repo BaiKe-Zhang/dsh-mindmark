@@ -1,4 +1,4 @@
-// dsh-redpen — the model-facing text for a batch of pending annotations.
+// dsh-mindmark — the model-facing text for a batch of pending annotations.
 //
 // Two view modes, chosen per session by the user:
 //   • `brief`: only the annotated passages, each with a little context;
@@ -15,7 +15,7 @@ export const STYLE_META = {
 }
 
 export const TOOL_NAME = 'annotations'
-export const SOURCE_KIND = 'dsh-redpen'
+export const SOURCE_KIND = 'dsh-mindmark'
 export const BRIEF_CONTEXT_CHARS = 60
 export const MAX_FULL_MESSAGE_CHARS = 12000
 

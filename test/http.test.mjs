@@ -1,4 +1,4 @@
-// Unit tests for the dsh-redpen HTTP handler, prompt section and tool
+// Unit tests for the dsh-mindmark HTTP handler, prompt section and tool
 // registration (node:test, no network: req/res are plain recorders).
 
 import assert from 'node:assert/strict'
@@ -17,7 +17,7 @@ import {
 } from '../index.js'
 import { AnnotationStore } from '../src/store.js'
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-redpen-http-'))
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-mindmark-http-'))
 after(() => {
   fs.rmSync(tempRoot, { recursive: true, force: true })
 })
@@ -93,7 +93,7 @@ function localStamp(iso) {
 // ------------------------------------------------------------------- route
 
 test('the route path is the contract path and the factory needs a store', () => {
-  assert.equal(ROUTE, '/plugins/dsh-redpen/annotations')
+  assert.equal(ROUTE, '/plugins/dsh-mindmark/annotations')
   assert.throws(() => createAnnotationsHandler({}), TypeError)
   assert.throws(() => createAnnotationsHandler(), TypeError)
 })

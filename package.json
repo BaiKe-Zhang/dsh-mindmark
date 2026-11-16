@@ -1,8 +1,8 @@
 {
-  "name": "dsh-redpen",
+  "name": "dsh-mindmark",
   "version": "0.2.0",
   "private": true,
-  "description": "Red-pen feedback for DeepSeek Harness: highlight, underline, strike, comment on or rewrite parts of an answer like in Word; your markup reaches the model as context on the next turn.",
+  "description": "Show the model your mind: mark up an answer like in Word (highlight / underline / strike / comment / rewrite) and your markup reaches DeepSeek Harness as context on the next turn.",
   "type": "module",
   "main": "./index.js",
   "exports": {
@@ -34,19 +34,19 @@
     "dsh-plugin",
     "deepseek-harness",
     "annotation",
-    "highlight",
-    "underline",
+    "markup",
     "feedback",
-    "revision"
+    "human-in-the-loop",
+    "intent"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/BaiKe-Zhang/dsh-redpen.git"
+    "url": "git+https://github.com/BaiKe-Zhang/dsh-mindmark.git"
   },
-  "homepage": "https://github.com/BaiKe-Zhang/dsh-redpen#readme",
+  "homepage": "https://github.com/BaiKe-Zhang/dsh-mindmark#readme",
   "bugs": {
-    "url": "https://github.com/BaiKe-Zhang/dsh-redpen/issues"
+    "url": "https://github.com/BaiKe-Zhang/dsh-mindmark/issues"
   },
   "author": "BaiKe-Zhang",
   "scripts": {
